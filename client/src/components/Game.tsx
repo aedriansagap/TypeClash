@@ -10,15 +10,23 @@ export default function Game() {
   const engineRef = useRef<GameEngine | null>(null);
   const socketRef = useRef<Socket | null>(null);
   
-  const [gameState, setGameState] = useState<GameState>({
+  // Auth State
+  const [username, setUsername] = useState('');
+  const [userId, setUserId] = useState<string | null>(null);
+  const [authError, setAuthError] = useState('');
+  
+  // Game State
+  const [gameState, setGameState] = useState<GameState & { maxCombo: number }>({
     lives: 3,
     combo: 0,
+    maxCombo: 0,
     score: 0,
     isGameOver: false,
     timeLeft: 60,
     survived: false,
   });
   
+  // UI State
   const [isPlaying, setIsPlaying] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [currentRoom, setCurrentRoom] = useState('');
@@ -26,6 +34,13 @@ export default function Game() {
   const [opponentDisconnected, setOpponentDisconnected] = useState(false);
   const [matchResult, setMatchResult] = useState<'WIN' | 'LOSE' | 'DRAW' | null>(null);
   const [waitingForResult, setWaitingForResult] = useState(false);
+  
+  // Custom Rules
+  const [matchDuration, setMatchDuration] = useState<number>(60); // in seconds
+  
+  // Leaderboard
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
 
   useEffect(() => {
     // Initialize Game Engine
@@ -41,26 +56,27 @@ export default function Game() {
         }
       };
 
-      engineRef.current.onGameOverCallback = (score, survived) => {
+      engineRef.current.onGameOverCallback = (score, maxCombo, survived) => {
         if (socketRef.current) {
-          socketRef.current.emit('game_over', { score, survived });
+          socketRef.current.emit('game_over', { score, maxCombo, survived });
         }
       };
     }
 
     // Initialize Socket Connection
     if (!socketRef.current) {
-      // Connect to the server. For dev, assume localhost:3001
+      // Connect to the server
       socketRef.current = io('http://localhost:3001');
 
-      socketRef.current.on('game_start', (data: { seed: string }) => {
+      socketRef.current.on('game_start', (data: { seed: string, duration: number }) => {
         setWaitingForOpponent(false);
         setIsPlaying(true);
         setOpponentDisconnected(false);
         setMatchResult(null);
         setWaitingForResult(false);
+        setMatchDuration(data.duration);
         if (engineRef.current) {
-          engineRef.current.start(data.seed);
+          engineRef.current.start(data.seed, data.duration * 1000);
         }
       });
 
@@ -99,25 +115,78 @@ export default function Game() {
     };
   }, []);
 
+  const handleLogin = async () => {
+    if (!username.trim()) return;
+    try {
+      const res = await fetch('http://localhost:3001/api/auth/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim() })
+      });
+      const data = await res.json();
+      if (data.error) setAuthError(data.error);
+      else setUserId(data.id);
+    } catch(e) {
+      setAuthError('Failed to connect to server');
+    }
+  };
+
+  const loadLeaderboard = async () => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/leaderboard/${matchDuration}`);
+      const data = await res.json();
+      setLeaderboardData(data);
+      setShowLeaderboard(true);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const createRoom = () => {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     setCurrentRoom(code);
     setWaitingForOpponent(true);
-    socketRef.current?.emit('join_room', code);
+    socketRef.current?.emit('join_room', { roomId: code, duration: matchDuration, userId });
   };
 
   const joinRoom = () => {
     if (roomCode.trim() !== '') {
       setCurrentRoom(roomCode.toUpperCase());
       setWaitingForOpponent(true);
-      socketRef.current?.emit('join_room', roomCode.toUpperCase());
+      socketRef.current?.emit('join_room', { roomId: roomCode.toUpperCase(), userId });
     }
   };
 
   const playSinglePlayer = () => {
     setIsPlaying(true);
-    engineRef.current?.start(Math.random().toString());
+    engineRef.current?.start(Math.random().toString(), matchDuration * 1000);
   };
+
+  // Render Login Screen if no userId
+  if (!userId) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.overlay}>
+          <h1 className={styles.title}>TypeClash</h1>
+          <div className={styles.multiplayerBox}>
+            <h3 className={styles.subtitle}>Enter Player Name</h3>
+            <div className={styles.inputGroup}>
+              <input 
+                type="text" 
+                className={styles.input} 
+                placeholder="Username..."
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              />
+              <button className={styles.btnSmall} onClick={handleLogin}>Start</button>
+            </div>
+            {authError && <p style={{color: '#ef4444'}}>{authError}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>
@@ -138,13 +207,29 @@ export default function Game() {
       <canvas ref={canvasRef} className={styles.canvas} />
 
       {/* Main Menu */}
-      {!isPlaying && !gameState.isGameOver && !waitingForOpponent && (
+      {!isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && (
         <div className={styles.overlay}>
           <h1 className={styles.title}>TypeClash</h1>
+          <p style={{marginBottom: '2rem', fontSize: '1.2rem', color: '#9ca3af'}}>Welcome, {username}!</p>
           
-          <button className={styles.btn} onClick={playSinglePlayer} style={{ marginBottom: '2rem' }}>
-            Single Player Mode
-          </button>
+          <div style={{display: 'flex', gap: '1rem', marginBottom: '2rem'}}>
+            <label style={{fontSize: '1.2rem'}}>Match Duration:</label>
+            <select 
+              className={styles.input} 
+              style={{padding: '4px 12px', fontSize: '1rem'}}
+              value={matchDuration}
+              onChange={(e) => setMatchDuration(Number(e.target.value))}
+            >
+              <option value={60}>1 Minute</option>
+              <option value={180}>3 Minutes</option>
+              <option value={300}>5 Minutes</option>
+            </select>
+          </div>
+
+          <div style={{display: 'flex', gap: '1rem', marginBottom: '2rem'}}>
+            <button className={styles.btn} onClick={playSinglePlayer}>Single Player</button>
+            <button className={styles.btn} style={{background: 'linear-gradient(135deg, #f59e0b, #ea580c)'}} onClick={loadLeaderboard}>Leaderboard</button>
+          </div>
 
           <div className={styles.multiplayerBox}>
             <h3 className={styles.subtitle}>Multiplayer</h3>
@@ -164,10 +249,42 @@ export default function Game() {
         </div>
       )}
 
+      {/* Leaderboard Modal */}
+      {showLeaderboard && (
+        <div className={styles.overlay}>
+          <div className={styles.multiplayerBox} style={{ width: '80%', maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <h2 className={styles.title} style={{fontSize: '3rem', marginBottom: '1rem'}}>Top Scores ({matchDuration}s)</h2>
+            <table style={{width: '100%', textAlign: 'left', borderCollapse: 'collapse', marginBottom: '2rem'}}>
+              <thead>
+                <tr style={{borderBottom: '1px solid rgba(255,255,255,0.2)'}}>
+                  <th style={{padding: '10px'}}>Rank</th>
+                  <th style={{padding: '10px'}}>Player</th>
+                  <th style={{padding: '10px'}}>Score</th>
+                  <th style={{padding: '10px'}}>Max Combo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboardData.length === 0 && <tr><td colSpan={4} style={{textAlign: 'center', padding: '20px'}}>No scores yet!</td></tr>}
+                {leaderboardData.map((row, idx) => (
+                  <tr key={idx} style={{background: idx % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'transparent'}}>
+                    <td style={{padding: '10px'}}>{idx + 1}</td>
+                    <td style={{padding: '10px'}}>{row.username}</td>
+                    <td style={{padding: '10px', fontWeight: 'bold', color: '#4ade80'}}>{row.score}</td>
+                    <td style={{padding: '10px'}}>{row.maxCombo}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button className={styles.btn} onClick={() => setShowLeaderboard(false)}>Back to Menu</button>
+          </div>
+        </div>
+      )}
+
       {/* Waiting for Opponent */}
       {waitingForOpponent && !isPlaying && (
         <div className={styles.overlay}>
           <h2 className={styles.title}>Room: {currentRoom}</h2>
+          <p className={styles.scoreText}>Match Time: {matchDuration}s</p>
           <p className={styles.scoreText}>Waiting for an opponent to join...</p>
           <div className={styles.loader}></div>
         </div>

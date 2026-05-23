@@ -31,9 +31,10 @@ export class GameEngine {
   private random: seedrandom.PRNG;
 
   // Game State
-  private state: GameState = {
+  private state: GameState & { maxCombo: number } = {
     lives: 3,
     combo: 0,
+    maxCombo: 0,
     score: 0,
     isGameOver: false,
     timeLeft: 60,
@@ -52,9 +53,9 @@ export class GameEngine {
   private baseSpeed: number = 0.08; // Increased base speed
 
   // Callbacks
-  public onStateChange: (state: GameState) => void = () => {};
+  public onStateChange: (state: GameState & { maxCombo: number }) => void = () => {};
   public onGarbageGenerated: (amount: number) => void = () => {};
-  public onGameOverCallback: (score: number, survived: boolean) => void = () => {};
+  public onGameOverCallback: (score: number, maxCombo: number, survived: boolean) => void = () => {};
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -71,11 +72,12 @@ export class GameEngine {
     this.resize();
   }
 
-  public start(seed?: string) {
+  public start(seed?: string, durationMs: number = 60000) {
     // Initialize RNG with seed if provided, else random
     this.random = seedrandom(seed || Math.random().toString());
     
-    this.state = { lives: 3, combo: 0, score: 0, isGameOver: false, timeLeft: 60, survived: false };
+    this.matchDuration = durationMs;
+    this.state = { lives: 3, combo: 0, maxCombo: 0, score: 0, isGameOver: false, timeLeft: Math.ceil(durationMs/1000), survived: false };
     this.words = [];
     this.targetedWordId = null;
     this.timeElapsed = 0;
@@ -123,7 +125,7 @@ export class GameEngine {
       this.state.isGameOver = true;
       this.state.survived = true;
       this.notifyState();
-      this.onGameOverCallback(this.state.score, this.state.survived);
+      this.onGameOverCallback(this.state.score, this.state.maxCombo, this.state.survived);
       return;
     }
 
@@ -279,6 +281,9 @@ export class GameEngine {
     
     // Combo & Score logic
     this.state.combo += 1;
+    if (this.state.combo > this.state.maxCombo) {
+      this.state.maxCombo = this.state.combo;
+    }
     this.state.score += 10 * this.state.combo;
     
     // Check garbage mechanics (e.g., every 5 combo sends 1 garbage)
@@ -304,7 +309,7 @@ export class GameEngine {
       this.state.isGameOver = true;
       this.state.survived = false;
       this.notifyState();
-      this.onGameOverCallback(this.state.score, this.state.survived);
+      this.onGameOverCallback(this.state.score, this.state.maxCombo, this.state.survived);
     } else {
       this.notifyState();
     }
