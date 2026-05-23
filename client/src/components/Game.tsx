@@ -164,32 +164,8 @@ export default function Game() {
     engineRef.current?.start(Math.random().toString(), matchDuration * 1000);
   };
 
-  // Render Login Screen if no userId
-  if (!userId) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.overlay}>
-          <h1 className={styles.title}>TypeClash</h1>
-          <div className={styles.multiplayerBox}>
-            <h3 className={styles.subtitle}>Enter Player Name</h3>
-            <div className={styles.inputGroup}>
-              <input 
-                type="text" 
-                className={styles.input} 
-                placeholder="Username..."
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-              />
-              <button className={styles.btnSmall} onClick={handleLogin}>Start</button>
-            </div>
-            {authError && <p style={{color: '#ef4444'}}>{authError}</p>}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // The container will always render the canvas to ensure the engine initializes properly.
+  // The different UI screens (Login, Main Menu, Game Over) are rendered as overlays.
   return (
     <div className={styles.container}>
       {/* HUD overlay */}
@@ -208,8 +184,30 @@ export default function Game() {
       {/* Game Canvas */}
       <canvas ref={canvasRef} className={styles.canvas} />
 
+      {/* Login Screen */}
+      {!userId && (
+        <div className={styles.overlay}>
+          <h1 className={styles.title}>TypeClash</h1>
+          <div className={styles.multiplayerBox}>
+            <h3 className={styles.subtitle}>Enter Player Name</h3>
+            <div className={styles.inputGroup}>
+              <input 
+                type="text" 
+                className={styles.input} 
+                placeholder="Username..."
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              />
+              <button className={styles.btnSmall} onClick={handleLogin}>Start</button>
+            </div>
+            {authError && <p style={{color: '#ef4444'}}>{authError}</p>}
+          </div>
+        </div>
+      )}
+
       {/* Main Menu */}
-      {!isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && (
+      {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && (
         <div className={styles.overlay}>
           <h1 className={styles.title}>TypeClash</h1>
           <p style={{marginBottom: '2rem', fontSize: '1.2rem', color: '#9ca3af'}}>Welcome, {username}!</p>
