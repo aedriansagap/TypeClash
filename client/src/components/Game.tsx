@@ -5,6 +5,8 @@ import { io, Socket } from 'socket.io-client';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import styles from './Game.module.css';
 
+const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001';
+
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -66,7 +68,7 @@ export default function Game() {
     // Initialize Socket Connection
     if (!socketRef.current) {
       // Connect to the server
-      socketRef.current = io('http://localhost:3001');
+      socketRef.current = io(SERVER_URL);
 
       socketRef.current.on('game_start', (data: { seed: string, duration: number }) => {
         setWaitingForOpponent(false);
@@ -118,7 +120,7 @@ export default function Game() {
   const handleLogin = async () => {
     if (!username.trim()) return;
     try {
-      const res = await fetch('http://localhost:3001/api/auth/guest', {
+      const res = await fetch(`${SERVER_URL}/api/auth/guest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim() })
@@ -133,7 +135,7 @@ export default function Game() {
 
   const loadLeaderboard = async () => {
     try {
-      const res = await fetch(`http://localhost:3001/api/leaderboard/${matchDuration}`);
+      const res = await fetch(`${SERVER_URL}/api/leaderboard/${matchDuration}`);
       const data = await res.json();
       setLeaderboardData(data);
       setShowLeaderboard(true);
