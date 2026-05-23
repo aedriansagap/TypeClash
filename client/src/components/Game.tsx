@@ -15,6 +15,8 @@ export default function Game() {
     combo: 0,
     score: 0,
     isGameOver: false,
+    timeLeft: 60,
+    survived: false,
   });
   
   const [isPlaying, setIsPlaying] = useState(false);
@@ -22,6 +24,8 @@ export default function Game() {
   const [currentRoom, setCurrentRoom] = useState('');
   const [waitingForOpponent, setWaitingForOpponent] = useState(false);
   const [opponentDisconnected, setOpponentDisconnected] = useState(false);
+  const [matchResult, setMatchResult] = useState<'WIN' | 'LOSE' | 'DRAW' | null>(null);
+  const [waitingForResult, setWaitingForResult] = useState(false);
 
   useEffect(() => {
     // Initialize Game Engine
@@ -36,6 +40,12 @@ export default function Game() {
           socketRef.current.emit('send_garbage', amount);
         }
       };
+
+      engineRef.current.onGameOverCallback = (score, survived) => {
+        if (socketRef.current) {
+          socketRef.current.emit('game_over', { score, survived });
+        }
+      };
     }
 
     // Initialize Socket Connection
@@ -47,6 +57,8 @@ export default function Game() {
         setWaitingForOpponent(false);
         setIsPlaying(true);
         setOpponentDisconnected(false);
+        setMatchResult(null);
+        setWaitingForResult(false);
         if (engineRef.current) {
           engineRef.current.start(data.seed);
         }
@@ -63,6 +75,15 @@ export default function Game() {
         if (engineRef.current) {
           engineRef.current.stop();
         }
+      });
+
+      socketRef.current.on('match_result', (data: { result: 'WIN' | 'LOSE' | 'DRAW' }) => {
+        setWaitingForResult(false);
+        setMatchResult(data.result);
+      });
+
+      socketRef.current.on('waiting_for_result', () => {
+        setWaitingForResult(true);
       });
     }
 
@@ -104,6 +125,7 @@ export default function Game() {
       {(isPlaying || gameState.isGameOver) && (
         <div className={styles.hud}>
           <div className={styles.stat}>Score: {gameState.score}</div>
+          <div className={styles.stat}>Time: {gameState.timeLeft}s</div>
           {currentRoom && <div className={styles.stat}>Room: {currentRoom}</div>}
           <div className={styles.stat} style={{ color: gameState.combo > 5 ? '#fcd34d' : 'white' }}>
             Combo: x{gameState.combo}
@@ -152,12 +174,30 @@ export default function Game() {
       )}
 
       {/* Game Over Screen */}
-      {gameState.isGameOver && (
+      {gameState.isGameOver && !waitingForResult && (
         <div className={styles.overlay}>
-          <h2 className={styles.title}>Game Over</h2>
+          <h2 className={styles.title}>
+            {matchResult === 'WIN' && "🏆 You Won!"}
+            {matchResult === 'LOSE' && "💀 You Lost!"}
+            {matchResult === 'DRAW' && "🤝 It's a Draw!"}
+            {!matchResult && "Game Over"}
+          </h2>
+          {gameState.survived ? (
+            <p className={styles.scoreText}>You Survived the Time Limit!</p>
+          ) : (
+            <p className={styles.scoreText}>You were crushed by words.</p>
+          )}
           <p className={styles.scoreText}>Final Score: {gameState.score}</p>
-          <p className={styles.scoreText}>Max Combo: {gameState.combo}</p>
           <button className={styles.btn} onClick={() => window.location.reload()}>Back to Menu</button>
+        </div>
+      )}
+
+      {/* Waiting for Match Result */}
+      {waitingForResult && (
+        <div className={styles.overlay}>
+          <h2 className={styles.title}>Finished!</h2>
+          <p className={styles.scoreText}>Waiting for opponent to finish...</p>
+          <div className={styles.loader}></div>
         </div>
       )}
 

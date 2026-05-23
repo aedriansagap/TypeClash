@@ -6,6 +6,8 @@ export interface GameState {
   combo: number;
   score: number;
   isGameOver: boolean;
+  timeLeft: number;
+  survived: boolean;
 }
 
 interface WordEntity {
@@ -34,6 +36,8 @@ export class GameEngine {
     combo: 0,
     score: 0,
     isGameOver: false,
+    timeLeft: 60,
+    survived: false,
   };
   
   private words: WordEntity[] = [];
@@ -42,13 +46,15 @@ export class GameEngine {
   // Difficulty Scaling
   private timeElapsed: number = 0;
   private spawnTimer: number = 0;
+  private matchDuration: number = 60000; // 1 minute in ms
   private baseSpawnInterval: number = 2000; // ms
   private currentSpawnInterval: number = 2000;
-  private baseSpeed: number = 0.05; // pixels per ms
+  private baseSpeed: number = 0.08; // Increased base speed
 
   // Callbacks
   public onStateChange: (state: GameState) => void = () => {};
   public onGarbageGenerated: (amount: number) => void = () => {};
+  public onGameOverCallback: (score: number, survived: boolean) => void = () => {};
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -69,7 +75,7 @@ export class GameEngine {
     // Initialize RNG with seed if provided, else random
     this.random = seedrandom(seed || Math.random().toString());
     
-    this.state = { lives: 3, combo: 0, score: 0, isGameOver: false };
+    this.state = { lives: 3, combo: 0, score: 0, isGameOver: false, timeLeft: 60, survived: false };
     this.words = [];
     this.targetedWordId = null;
     this.timeElapsed = 0;
@@ -111,9 +117,19 @@ export class GameEngine {
   private update(deltaTime: number) {
     this.timeElapsed += deltaTime;
     
-    // Scale difficulty over time (every 10 seconds, get slightly faster)
-    const difficultyMultiplier = 1 + Math.floor(this.timeElapsed / 10000) * 0.1;
-    this.currentSpawnInterval = Math.max(500, this.baseSpawnInterval / difficultyMultiplier);
+    this.state.timeLeft = Math.max(0, Math.ceil((this.matchDuration - this.timeElapsed) / 1000));
+
+    if (this.timeElapsed >= this.matchDuration && !this.state.isGameOver) {
+      this.state.isGameOver = true;
+      this.state.survived = true;
+      this.notifyState();
+      this.onGameOverCallback(this.state.score, this.state.survived);
+      return;
+    }
+
+    // Scale difficulty over time (max 2.5x speed at the end of the minute)
+    const difficultyMultiplier = 1 + (this.timeElapsed / this.matchDuration) * 1.5;
+    this.currentSpawnInterval = Math.max(400, this.baseSpawnInterval / difficultyMultiplier);
     const currentSpeed = this.baseSpeed * difficultyMultiplier;
 
     // Spawning logic
@@ -286,8 +302,12 @@ export class GameEngine {
     
     if (this.state.lives <= 0) {
       this.state.isGameOver = true;
+      this.state.survived = false;
+      this.notifyState();
+      this.onGameOverCallback(this.state.score, this.state.survived);
+    } else {
+      this.notifyState();
     }
-    this.notifyState();
   }
 
   private notifyState() {
