@@ -5,7 +5,7 @@ import { io, Socket } from 'socket.io-client';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import styles from './Game.module.css';
 
-const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001';
+const SERVER_URL = (process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
