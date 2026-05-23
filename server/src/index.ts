@@ -15,6 +15,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Health Check Endpoint (Required by Render)
+app.get('/', (req, res) => {
+  res.status(200).send('TypeClash Server is running smoothly!');
+});
+
 // REST API for Auth and Leaderboards
 app.post('/api/auth/guest', async (req, res) => {
   const { username } = req.body;
