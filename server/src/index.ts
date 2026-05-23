@@ -58,6 +58,25 @@ app.get('/api/leaderboard/:duration', async (req, res) => {
   }
 });
 
+app.post('/api/score', async (req, res) => {
+  const { userId, score, maxCombo, matchDuration, survived } = req.body;
+  if (!userId || score === undefined) return res.status(400).json({ error: 'Missing data' });
+  try {
+    const newScore = new Score({
+      userId,
+      score,
+      maxCombo,
+      matchDuration,
+      survived
+    });
+    await newScore.save();
+    res.json({ success: true });
+  } catch(e: any) {
+    console.error('Score saving error:', e);
+    res.status(500).json({ error: `Database error: ${e.message}` });
+  }
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }

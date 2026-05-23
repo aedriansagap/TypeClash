@@ -30,6 +30,7 @@ export default function Game() {
   
   // UI State
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSinglePlayer, setIsSinglePlayer] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [currentRoom, setCurrentRoom] = useState('');
   const [waitingForOpponent, setWaitingForOpponent] = useState(false);
@@ -44,6 +45,16 @@ export default function Game() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
 
+  // Load from LocalStorage
+  useEffect(() => {
+    const savedId = localStorage.getItem('typeclash_userid');
+    const savedName = localStorage.getItem('typeclash_username');
+    if (savedId && savedName) {
+      setUserId(savedId);
+      setUsername(savedName);
+    }
+  }, []);
+
   useEffect(() => {
     // Initialize Game Engine
     if (canvasRef.current && !engineRef.current) {
@@ -57,12 +68,6 @@ export default function Game() {
           socketRef.current.emit('send_garbage', amount);
         }
       };
-
-      engineRef.current.onGameOverCallback = (score, maxCombo, survived) => {
-        if (socketRef.current) {
-          socketRef.current.emit('game_over', { score, maxCombo, survived });
-        }
-      };
     }
 
     // Initialize Socket Connection
@@ -72,6 +77,7 @@ export default function Game() {
 
       socketRef.current.on('game_start', (data: { seed: string, duration: number }) => {
         setWaitingForOpponent(false);
+        setIsSinglePlayer(false);
         setIsPlaying(true);
         setOpponentDisconnected(false);
         setMatchResult(null);
@@ -117,6 +123,25 @@ export default function Game() {
     };
   }, []);
 
+  // Update Game Over Callback when state changes
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.onGameOverCallback = (score, maxCombo, survived) => {
+        if (isSinglePlayer && userId) {
+          // Single player: push score directly via REST
+          fetch(`${SERVER_URL}/api/score`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, score, maxCombo, matchDuration, survived })
+          }).catch(console.error);
+        } else if (!isSinglePlayer && socketRef.current) {
+          // Multiplayer: emit to server to process tiebreakers
+          socketRef.current.emit('game_over', { score, maxCombo, survived });
+        }
+      };
+    }
+  }, [isSinglePlayer, userId, matchDuration]);
+
   const handleLogin = async () => {
     if (!username.trim()) return;
     try {
@@ -127,7 +152,11 @@ export default function Game() {
       });
       const data = await res.json();
       if (data.error) setAuthError(data.error);
-      else setUserId(data.id);
+      else {
+        setUserId(data.id);
+        localStorage.setItem('typeclash_userid', data.id);
+        localStorage.setItem('typeclash_username', data.username);
+      }
     } catch(e) {
       setAuthError('Failed to connect to server');
     }
@@ -160,8 +189,26 @@ export default function Game() {
   };
 
   const playSinglePlayer = () => {
+    setIsSinglePlayer(true);
     setIsPlaying(true);
+    setGameState(prev => ({...prev, isGameOver: false}));
     engineRef.current?.start(Math.random().toString(), matchDuration * 1000);
+  };
+
+  const returnToMenu = () => {
+    setIsPlaying(false);
+    setIsSinglePlayer(false);
+    setCurrentRoom('');
+    setRoomCode('');
+    setWaitingForOpponent(false);
+    setOpponentDisconnected(false);
+    setMatchResult(null);
+    setWaitingForResult(false);
+    setGameState(prev => ({...prev, isGameOver: false}));
+    if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current.connect(); // Reconnect to get a fresh socket if we left a room
+    }
   };
 
   // The container will always render the canvas to ensure the engine initializes properly.
@@ -305,7 +352,7 @@ export default function Game() {
             <p className={styles.scoreText}>You were crushed by words.</p>
           )}
           <p className={styles.scoreText}>Final Score: {gameState.score}</p>
-          <button className={styles.btn} onClick={() => window.location.reload()}>Back to Menu</button>
+          <button className={styles.btn} onClick={returnToMenu}>Back to Menu</button>
         </div>
       )}
 
@@ -323,7 +370,7 @@ export default function Game() {
         <div className={styles.overlay}>
           <h2 className={styles.title}>Opponent Disconnected</h2>
           <p className={styles.scoreText}>You win by default!</p>
-          <button className={styles.btn} onClick={() => window.location.reload()}>Back to Menu</button>
+          <button className={styles.btn} onClick={returnToMenu}>Back to Menu</button>
         </div>
       )}
     </div>

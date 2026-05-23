@@ -119,7 +119,13 @@ export class GameEngine {
   private update(deltaTime: number) {
     this.timeElapsed += deltaTime;
     
-    this.state.timeLeft = Math.max(0, Math.ceil((this.matchDuration - this.timeElapsed) / 1000));
+    const newTimeLeft = Math.max(0, Math.ceil((this.matchDuration - this.timeElapsed) / 1000));
+    
+    // Only notify React when the seconds tick down (improves performance)
+    if (newTimeLeft !== this.state.timeLeft) {
+      this.state.timeLeft = newTimeLeft;
+      this.notifyState();
+    }
 
     if (this.timeElapsed >= this.matchDuration && !this.state.isGameOver) {
       this.state.isGameOver = true;
