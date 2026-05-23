@@ -1,3 +1,4 @@
+import seedrandom from 'seedrandom';
 import { Dictionary, Difficulty } from './Dictionary';
 
 export interface GameState {
@@ -24,6 +25,9 @@ export class GameEngine {
   private animationFrameId: number = 0;
   private lastTime: number = 0;
   
+  // PRNG
+  private random: seedrandom.PRNG;
+
   // Game State
   private state: GameState = {
     lives: 3,
@@ -44,10 +48,12 @@ export class GameEngine {
 
   // Callbacks
   public onStateChange: (state: GameState) => void = () => {};
+  public onGarbageGenerated: (amount: number) => void = () => {};
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
+    this.random = seedrandom(); // Default unseeded
     
     // Bind event listeners
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -59,7 +65,10 @@ export class GameEngine {
     this.resize();
   }
 
-  public start() {
+  public start(seed?: string) {
+    // Initialize RNG with seed if provided, else random
+    this.random = seedrandom(seed || Math.random().toString());
+    
     this.state = { lives: 3, combo: 0, score: 0, isGameOver: false };
     this.words = [];
     this.targetedWordId = null;
@@ -224,7 +233,7 @@ export class GameEngine {
     let diff = Difficulty.EASY;
     if (difficultyMultiplier > 1.5) diff = Difficulty.HARD;
     
-    const text = Dictionary.getWord(diff);
+    const text = Dictionary.getWord(this.random, diff);
     
     // Ensure word spawns fully within horizontal bounds
     this.ctx.font = '24px Inter, sans-serif';
@@ -232,10 +241,10 @@ export class GameEngine {
     const padding = 20;
     const minX = textWidth / 2 + padding;
     const maxX = rect.width - (textWidth / 2) - padding;
-    const x = Math.max(minX, Math.min(maxX, Math.random() * (maxX - minX) + minX));
+    const x = Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX));
 
     const word: WordEntity = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: this.random().toString(36).substring(2, 9),
       text,
       typed: '',
       x,
@@ -256,10 +265,11 @@ export class GameEngine {
     this.state.combo += 1;
     this.state.score += 10 * this.state.combo;
     
-    // Check garbage mechanics (e.g., every 5 combo)
+    // Check garbage mechanics (e.g., every 5 combo sends 1 garbage)
     if (this.state.combo > 0 && this.state.combo % 5 === 0) {
-      // Send garbage (In multiplayer, this emits to server. For now, it's just local points or logic)
-      this.state.score += 50; // Bonus for now
+      this.state.score += 50; // Bonus score
+      // Send garbage (emit to network)
+      this.onGarbageGenerated(1); 
     }
     
     this.notifyState();
@@ -289,18 +299,18 @@ export class GameEngine {
     // Spawns junk words
     for(let i=0; i<amount; i++) {
       const rect = this.canvas.getBoundingClientRect();
-      const text = Dictionary.getJunkWord();
+      const text = Dictionary.getJunkWord(this.random);
       this.ctx.font = '24px Inter, sans-serif';
       const textWidth = this.ctx.measureText(text).width;
       const minX = textWidth / 2 + 20;
       const maxX = rect.width - (textWidth / 2) - 20;
       
       this.words.push({
-        id: Math.random().toString(36).substring(2, 9),
+        id: this.random().toString(36).substring(2, 9),
         text,
         typed: '',
-        x: Math.max(minX, Math.min(maxX, Math.random() * (maxX - minX) + minX)),
-        y: Math.random() * -100 - 30, // Spagger spawning above screen
+        x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
+        y: this.random() * -100 - 30, // Stagger spawning above screen
         speed: this.baseSpeed * 2, // Sped up
         isJunk: true,
         color: '#f87171'
