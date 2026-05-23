@@ -31,8 +31,9 @@ app.post('/api/auth/guest', async (req, res) => {
       await user.save();
     }
     res.json({ id: user._id, username: user.username });
-  } catch(e) {
-    res.status(500).json({ error: 'Database error' });
+  } catch(e: any) {
+    console.error('Auth error:', e);
+    res.status(500).json({ error: `Database error: ${e.message}` });
   }
 });
 
@@ -51,8 +52,9 @@ app.get('/api/leaderboard/:duration', async (req, res) => {
       survived: s.survived,
       date: s.createdAt
     })));
-  } catch(e) {
-    res.status(500).json({ error: 'Database error' });
+  } catch(e: any) {
+    console.error('Leaderboard error:', e);
+    res.status(500).json({ error: `Database error: ${e.message}` });
   }
 });
 
