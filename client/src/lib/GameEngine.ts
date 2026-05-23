@@ -1,0 +1,310 @@
+import { Dictionary, Difficulty } from './Dictionary';
+
+export interface GameState {
+  lives: number;
+  combo: number;
+  score: number;
+  isGameOver: boolean;
+}
+
+interface WordEntity {
+  id: string;
+  text: string;
+  typed: string; // The portion of the word already typed
+  x: number;
+  y: number;
+  speed: number;
+  isJunk: boolean;
+  color: string;
+}
+
+export class GameEngine {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private animationFrameId: number = 0;
+  private lastTime: number = 0;
+  
+  // Game State
+  private state: GameState = {
+    lives: 3,
+    combo: 0,
+    score: 0,
+    isGameOver: false,
+  };
+  
+  private words: WordEntity[] = [];
+  private targetedWordId: string | null = null;
+  
+  // Difficulty Scaling
+  private timeElapsed: number = 0;
+  private spawnTimer: number = 0;
+  private baseSpawnInterval: number = 2000; // ms
+  private currentSpawnInterval: number = 2000;
+  private baseSpeed: number = 0.05; // pixels per ms
+
+  // Callbacks
+  public onStateChange: (state: GameState) => void = () => {};
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d')!;
+    
+    // Bind event listeners
+    this.handleKeyDown = this.handleKeyDown.bind(this);
+    this.resize = this.resize.bind(this);
+    
+    window.addEventListener('resize', this.resize);
+    window.addEventListener('keydown', this.handleKeyDown);
+    
+    this.resize();
+  }
+
+  public start() {
+    this.state = { lives: 3, combo: 0, score: 0, isGameOver: false };
+    this.words = [];
+    this.targetedWordId = null;
+    this.timeElapsed = 0;
+    this.spawnTimer = 0;
+    this.lastTime = performance.now();
+    this.notifyState();
+    this.loop(this.lastTime);
+  }
+
+  public stop() {
+    cancelAnimationFrame(this.animationFrameId);
+    window.removeEventListener('resize', this.resize);
+    window.removeEventListener('keydown', this.handleKeyDown);
+  }
+
+  private resize() {
+    // Keep canvas crisp
+    const dpr = window.devicePixelRatio || 1;
+    const rect = this.canvas.getBoundingClientRect();
+    this.canvas.width = rect.width * dpr;
+    this.canvas.height = rect.height * dpr;
+    this.ctx.scale(dpr, dpr);
+    this.canvas.style.width = `${rect.width}px`;
+    this.canvas.style.height = `${rect.height}px`;
+  }
+
+  private loop(time: number) {
+    if (this.state.isGameOver) return;
+
+    const deltaTime = time - this.lastTime;
+    this.lastTime = time;
+
+    this.update(deltaTime);
+    this.render();
+
+    this.animationFrameId = requestAnimationFrame(this.loop.bind(this));
+  }
+
+  private update(deltaTime: number) {
+    this.timeElapsed += deltaTime;
+    
+    // Scale difficulty over time (every 10 seconds, get slightly faster)
+    const difficultyMultiplier = 1 + Math.floor(this.timeElapsed / 10000) * 0.1;
+    this.currentSpawnInterval = Math.max(500, this.baseSpawnInterval / difficultyMultiplier);
+    const currentSpeed = this.baseSpeed * difficultyMultiplier;
+
+    // Spawning logic
+    this.spawnTimer += deltaTime;
+    if (this.spawnTimer >= this.currentSpawnInterval) {
+      this.spawnTimer = 0;
+      this.spawnWord(currentSpeed, difficultyMultiplier);
+    }
+
+    // Move words and check collisions
+    const canvasHeight = this.canvas.getBoundingClientRect().height;
+    
+    for (let i = this.words.length - 1; i >= 0; i--) {
+      const word = this.words[i];
+      word.y += word.speed * deltaTime;
+
+      // Word hits the bottom
+      if (word.y > canvasHeight) {
+        this.words.splice(i, 1);
+        if (this.targetedWordId === word.id) {
+          this.targetedWordId = null;
+        }
+        this.loseLife();
+      }
+    }
+  }
+
+  private render() {
+    const rect = this.canvas.getBoundingClientRect();
+    // Clear screen
+    this.ctx.clearRect(0, 0, rect.width, rect.height);
+    
+    // Draw words
+    this.ctx.font = '24px Inter, sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+
+    for (const word of this.words) {
+      const isTargeted = this.targetedWordId === word.id;
+      
+      // Draw typed portion
+      const typedText = word.typed;
+      const remainingText = word.text.substring(word.typed.length);
+      
+      const typedWidth = this.ctx.measureText(typedText).width;
+      const remainingWidth = this.ctx.measureText(remainingText).width;
+      const totalWidth = typedWidth + remainingWidth;
+      
+      const startX = word.x - totalWidth / 2;
+
+      // Typed characters (green/highlighted)
+      this.ctx.fillStyle = '#4ade80'; // Tailwind green-400 equivalent
+      this.ctx.fillText(typedText, startX + typedWidth / 2, word.y);
+      
+      // Remaining characters
+      this.ctx.fillStyle = isTargeted ? '#ffffff' : (word.isJunk ? '#f87171' : '#9ca3af');
+      this.ctx.fillText(remainingText, startX + typedWidth + remainingWidth / 2, word.y);
+    }
+  }
+
+  private handleKeyDown(e: KeyboardEvent) {
+    if (this.state.isGameOver) return;
+    
+    // Ignore meta keys
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    
+    const key = e.key;
+    if (key.length !== 1) return; // Only process printable single characters
+
+    if (this.targetedWordId) {
+      // We are already targeting a word
+      const target = this.words.find(w => w.id === this.targetedWordId);
+      if (!target) {
+        this.targetedWordId = null;
+        return;
+      }
+
+      const expectedChar = target.text[target.typed.length];
+      
+      if (key === expectedChar) {
+        // Correct hit
+        target.typed += key;
+        
+        // Word completed
+        if (target.typed === target.text) {
+          this.destroyWord(target.id);
+        }
+      } else {
+        // Wrong hit - break combo
+        this.breakCombo();
+      }
+    } else {
+      // Find a new target (lowest word that starts with the pressed key)
+      const potentialTargets = this.words
+        .filter(w => w.text.startsWith(key))
+        .sort((a, b) => b.y - a.y); // Sort by highest Y (lowest on screen)
+
+      if (potentialTargets.length > 0) {
+        const target = potentialTargets[0];
+        this.targetedWordId = target.id;
+        target.typed += key;
+        
+        if (target.typed === target.text) {
+          this.destroyWord(target.id);
+        }
+      } else {
+        // Typed a key that doesn't match any word
+        this.breakCombo();
+      }
+    }
+  }
+
+  private spawnWord(speed: number, difficultyMultiplier: number) {
+    const rect = this.canvas.getBoundingClientRect();
+    
+    // Determine difficulty based on time/multiplier
+    let diff = Difficulty.EASY;
+    if (difficultyMultiplier > 1.5) diff = Difficulty.HARD;
+    
+    const text = Dictionary.getWord(diff);
+    
+    // Ensure word spawns fully within horizontal bounds
+    this.ctx.font = '24px Inter, sans-serif';
+    const textWidth = this.ctx.measureText(text).width;
+    const padding = 20;
+    const minX = textWidth / 2 + padding;
+    const maxX = rect.width - (textWidth / 2) - padding;
+    const x = Math.max(minX, Math.min(maxX, Math.random() * (maxX - minX) + minX));
+
+    const word: WordEntity = {
+      id: Math.random().toString(36).substring(2, 9),
+      text,
+      typed: '',
+      x,
+      y: -30, // Start above screen
+      speed,
+      isJunk: false,
+      color: '#ffffff'
+    };
+
+    this.words.push(word);
+  }
+
+  private destroyWord(id: string) {
+    this.words = this.words.filter(w => w.id !== id);
+    this.targetedWordId = null;
+    
+    // Combo & Score logic
+    this.state.combo += 1;
+    this.state.score += 10 * this.state.combo;
+    
+    // Check garbage mechanics (e.g., every 5 combo)
+    if (this.state.combo > 0 && this.state.combo % 5 === 0) {
+      // Send garbage (In multiplayer, this emits to server. For now, it's just local points or logic)
+      this.state.score += 50; // Bonus for now
+    }
+    
+    this.notifyState();
+  }
+
+  private breakCombo() {
+    this.state.combo = 0;
+    this.notifyState();
+  }
+
+  private loseLife() {
+    this.state.lives -= 1;
+    this.state.combo = 0;
+    
+    if (this.state.lives <= 0) {
+      this.state.isGameOver = true;
+    }
+    this.notifyState();
+  }
+
+  private notifyState() {
+    this.onStateChange({ ...this.state });
+  }
+
+  // Public method to be called from multiplayer server to receive garbage
+  public receiveGarbage(amount: number) {
+    // Spawns junk words
+    for(let i=0; i<amount; i++) {
+      const rect = this.canvas.getBoundingClientRect();
+      const text = Dictionary.getJunkWord();
+      this.ctx.font = '24px Inter, sans-serif';
+      const textWidth = this.ctx.measureText(text).width;
+      const minX = textWidth / 2 + 20;
+      const maxX = rect.width - (textWidth / 2) - 20;
+      
+      this.words.push({
+        id: Math.random().toString(36).substring(2, 9),
+        text,
+        typed: '',
+        x: Math.max(minX, Math.min(maxX, Math.random() * (maxX - minX) + minX)),
+        y: Math.random() * -100 - 30, // Spagger spawning above screen
+        speed: this.baseSpeed * 2, // Sped up
+        isJunk: true,
+        color: '#f87171'
+      });
+    }
+  }
+}
