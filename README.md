@@ -75,5 +75,15 @@ TypeClash is designed for a split-hosting architecture to bypass Serverless func
 
 ---
 
+##  Future Roadmap (Alpha -> Beta)
+
+As TypeClash moves out of its Alpha phase, the following features are planned for future development:
+- **Monetization & Accessibility:** Commitment to keeping the core game completely free and accessible (similar to Monkeytype). Future server costs will be supported via non-intrusive ads and optional community donations.
+- **SSO Authentication:** Integration of Google Sign-in alongside the current JWT email/guest system for even faster onboarding.
+- **Deep Customization:** Allowing players to customize their typing interface, including themes, custom falling-word speeds, and personalized HUD metrics.
+- **Elo Matchmaking:** Evolving the current Auto Matchmaking system to pair players based on their average WPM and Win/Loss ratio.
+
+---
+
 ##  License
 MIT License. Feel free to fork and build upon this!
