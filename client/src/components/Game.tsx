@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import styles from './Game.module.css';
@@ -621,9 +622,12 @@ export default function Game() {
       {!isPlaying && !gameState.isGameOver && (
         <div style={{ position: 'absolute', bottom: '1rem', width: '100%', textAlign: 'center', fontSize: '0.8rem', color: '#9ca3af', zIndex: 10 }}>
           <p>© {new Date().getFullYear()} TypeClash. All rights reserved.</p>
-          <p style={{ marginTop: '0.25rem' }}>
-            Created by aedriansagap | <a href="https://github.com/aedriansagap/TypeClash" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'none' }}>View on GitHub</a>
-          </p>
+          <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <Link href="/about" style={{ color: '#60a5fa', textDecoration: 'none' }}>About</Link>
+            <Link href="/contact" style={{ color: '#60a5fa', textDecoration: 'none' }}>Contact</Link>
+            <Link href="/privacy" style={{ color: '#60a5fa', textDecoration: 'none' }}>Privacy</Link>
+            <a href="https://github.com/aedriansagap/TypeClash" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'none' }}>GitHub</a>
+          </div>
         </div>
       )}
     </div>
