@@ -535,6 +535,15 @@ export default function Game() {
           <button className={styles.btn} onClick={returnToMenu}>Back to Menu</button>
         </div>
       )}
+      {/* Footer */}
+      {!isPlaying && !gameState.isGameOver && (
+        <div style={{ position: 'absolute', bottom: '1rem', width: '100%', textAlign: 'center', fontSize: '0.8rem', color: '#9ca3af', zIndex: 10 }}>
+          <p>© {new Date().getFullYear()} TypeClash. All rights reserved.</p>
+          <p style={{ marginTop: '0.25rem' }}>
+            Created by aedriansagap | <a href="https://github.com/aedriansagap/TypeClash" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'none' }}>View on GitHub</a>
+          </p>
+        </div>
+      )}
     </div>
   );
 }
