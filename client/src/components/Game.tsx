@@ -620,7 +620,7 @@ export default function Game() {
       )}
       {/* Footer */}
       {!isPlaying && !gameState.isGameOver && (
-        <div style={{ position: 'absolute', bottom: '1rem', width: '100%', textAlign: 'center', fontSize: '0.8rem', color: '#9ca3af', zIndex: 10 }}>
+        <div style={{ position: 'absolute', bottom: '1rem', width: '100%', textAlign: 'center', fontSize: '0.8rem', color: '#9ca3af', zIndex: 30 }}>
           <p>© {new Date().getFullYear()} TypeClash. All rights reserved.</p>
           <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <Link href="/about" style={{ color: '#60a5fa', textDecoration: 'none' }}>About</Link>
