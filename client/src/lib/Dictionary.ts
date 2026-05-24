@@ -1,6 +1,13 @@
 import seedrandom from 'seedrandom';
 import english1k from './words/english_1k.json';
 import english5k from './words/english_5k.json';
+import englishLong from './words/english_long.json';
+
+export interface GameModifiers {
+  includeNumbers: boolean;
+  includePunctuation: boolean;
+  longestWords: boolean;
+}
 
 export enum Difficulty {
   EASY = 'EASY', // From top 1k words
@@ -10,12 +17,14 @@ export enum Difficulty {
 
 export class Dictionary {
   /**
-   * Get a random word based on the specified difficulty.
+   * Get a random word based on the specified difficulty and modifiers.
    */
-  static getWord(random: seedrandom.PRNG, difficulty: Difficulty = Difficulty.EASY): string {
+  static getWord(random: seedrandom.PRNG, difficulty: Difficulty = Difficulty.EASY, mods?: GameModifiers): string {
     let wordList: string[] = [];
     
-    if (difficulty === Difficulty.EASY) {
+    if (mods?.longestWords) {
+      wordList = englishLong.words;
+    } else if (difficulty === Difficulty.EASY) {
       wordList = english1k.words;
     } else if (difficulty === Difficulty.HARD) {
       wordList = english5k.words;
@@ -24,7 +33,35 @@ export class Dictionary {
     }
 
     const randomIndex = Math.floor(random() * wordList.length);
-    return wordList[randomIndex];
+    let word = wordList[randomIndex];
+
+    if (mods) {
+      if (mods.includePunctuation && random() < 0.4) {
+        const punctuations = [
+          (w: string) => `${w}.`,
+          (w: string) => `${w},`,
+          (w: string) => `${w}?`,
+          (w: string) => `${w}!`,
+          (w: string) => `"${w}"`,
+          (w: string) => `(${w})`,
+          (w: string) => `${w};`,
+          (w: string) => `${w}:`,
+        ];
+        const pIndex = Math.floor(random() * punctuations.length);
+        word = punctuations[pIndex](word);
+      }
+      
+      if (mods.includeNumbers && random() < 0.4) {
+        const number = Math.floor(random() * 100);
+        if (random() < 0.5) {
+          word = `${word}${number}`;
+        } else {
+          word = `${number}${word}`;
+        }
+      }
+    }
+
+    return word;
   }
 
   /**

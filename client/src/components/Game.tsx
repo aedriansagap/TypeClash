@@ -65,6 +65,10 @@ export default function Game() {
   // Auto Matchmaking
   const [isSearchingAuto, setIsSearchingAuto] = useState(false);
 
+  // Game Modifiers
+  const [mods, setMods] = useState({ includeNumbers: false, includePunctuation: false, longestWords: false });
+  const [leaderboardMode, setLeaderboardMode] = useState('vanilla');
+
   // Load from LocalStorage & Session Expiry
   useEffect(() => {
     const savedId = localStorage.getItem('typeclash_userid');
@@ -116,7 +120,7 @@ export default function Game() {
     if (!socketRef.current) {
       socketRef.current = io(SERVER_URL);
 
-      socketRef.current.on('game_start', (data: { seed: string, duration: number, roomId?: string }) => {
+      socketRef.current.on('game_start', (data: { seed: string, duration: number, roomId?: string, mods?: any }) => {
         setWaitingForOpponent(false);
         setIsSearchingAuto(false);
         setIsSinglePlayer(false);
@@ -129,7 +133,7 @@ export default function Game() {
         setMatchDuration(data.duration);
         if (data.roomId) setCurrentRoom(data.roomId);
         if (engineRef.current) {
-          engineRef.current.start(data.seed, data.duration * 1000);
+          engineRef.current.start(data.seed, data.duration * 1000, data.mods);
         }
       });
 
@@ -177,14 +181,21 @@ export default function Game() {
   // Update Game Over Callback when state changes
   useEffect(() => {
     if (engineRef.current) {
-      engineRef.current.onGameOverCallback = (score, maxCombo, survived, metrics) => {
+      engineRef.current.onGameOverCallback = async (score, maxCombo, survived, metrics) => {
         if (isSinglePlayer) {
           setPlayerMetrics(metrics);
           if (userId) {
+            let modeStr = 'vanilla';
+            const modArr = [];
+            if (mods.includeNumbers) modArr.push('numbers');
+            if (mods.includePunctuation) modArr.push('punctuation');
+            if (mods.longestWords) modArr.push('long_words');
+            if (modArr.length > 0) modeStr = modArr.join('_');
+
             fetch(`${SERVER_URL}/api/score`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId, score, maxCombo, matchDuration, survived })
+              body: JSON.stringify({ userId, score, maxCombo, matchDuration, survived, mode: modeStr })
             }).catch(console.error);
           }
         } else if (!isSinglePlayer && socketRef.current) {
@@ -230,14 +241,16 @@ export default function Game() {
     setAuthMode('SELECT');
   };
 
-  const loadLeaderboard = async (tab: 'GLOBAL' | 'PERSONAL') => {
+  const loadLeaderboard = async (tab: 'GLOBAL' | 'PERSONAL', mode: string = leaderboardMode, duration: number = matchDuration) => {
+    setLeaderboardTab(tab);
+    setLeaderboardMode(mode);
+    setMatchDuration(duration);
     try {
-      setLeaderboardTab(tab);
-      const endpoint = tab === 'GLOBAL' 
-        ? `${SERVER_URL}/api/leaderboard/${matchDuration}`
-        : `${SERVER_URL}/api/leaderboard/personal/${userId}/${matchDuration}`;
+      const url = tab === 'GLOBAL' 
+        ? `${SERVER_URL}/api/leaderboard/${duration}/${mode}`
+        : `${SERVER_URL}/api/leaderboard/personal/${userId}/${duration}/${mode}`;
         
-      const res = await fetch(endpoint);
+      const res = await fetch(url);
       const data = await res.json();
       setLeaderboardData(data);
       setShowLeaderboard(true);
@@ -247,10 +260,10 @@ export default function Game() {
   };
 
   const createRoom = () => {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setCurrentRoom(code);
+    const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    setCurrentRoom(randomId);
     setWaitingForOpponent(true);
-    socketRef.current?.emit('join_room', { roomId: code, duration: matchDuration, userId });
+    socketRef.current?.emit('join_room', { roomId: randomId, duration: matchDuration, userId, mods });
   };
 
   const joinRoom = () => {
@@ -267,11 +280,11 @@ export default function Game() {
     setPlayerMetrics(null);
     setOpponentMetrics(null);
     setGameState(prev => ({...prev, isGameOver: false}));
-    engineRef.current?.start(Math.random().toString(), matchDuration * 1000);
+    engineRef.current?.start(Math.random().toString(), matchDuration * 1000, mods);
   };
 
   const findMatch = () => {
-    socketRef.current?.emit('find_match', { duration: matchDuration, userId });
+    socketRef.current?.emit('find_match', { duration: matchDuration, userId, mods });
   };
 
   const cancelMatch = () => {
@@ -394,23 +407,36 @@ export default function Game() {
 
           <h1 className={styles.title}>TypeClash</h1>
           
-          <div style={{display: 'flex', gap: '1rem', marginBottom: '2rem'}}>
-            <label style={{fontSize: '1.2rem'}}>Match Duration:</label>
-            <select 
-              className={styles.input} 
-              style={{padding: '4px 12px', fontSize: '1rem'}}
-              value={matchDuration}
-              onChange={(e) => setMatchDuration(Number(e.target.value))}
-            >
-              <option value={60}>1 Minute</option>
-              <option value={180}>3 Minutes</option>
-              <option value={300}>5 Minutes</option>
-            </select>
+          <div className={styles.multiplayerBox} style={{ width: '100%', maxWidth: '400px', marginBottom: '1rem' }}>
+            <h3 className={styles.subtitle}>Match Duration</h3>
+            <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 60 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(60)}>1m</button>
+              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 180 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(180)}>3m</button>
+              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 300 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(300)}>5m</button>
+            </div>
+          </div>
+
+          <div className={styles.multiplayerBox} style={{ width: '100%', maxWidth: '400px', marginBottom: '1rem' }}>
+            <h3 className={styles.subtitle} style={{ fontSize: '1.5rem' }}>Special Mods</h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={mods.includeNumbers} onChange={(e) => setMods({...mods, includeNumbers: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                Numbers
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={mods.includePunctuation} onChange={(e) => setMods({...mods, includePunctuation: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                Punctuation
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={mods.longestWords} onChange={(e) => setMods({...mods, longestWords: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                Long Words
+              </label>
+            </div>
           </div>
 
           <div style={{display: 'flex', gap: '1rem', marginBottom: '2rem'}}>
             <button className={styles.btn} onClick={playSinglePlayer}>Single Player</button>
-            <button className={styles.btn} style={{background: 'linear-gradient(135deg, #1e40af, #1e3a8a)'}} onClick={() => loadLeaderboard('GLOBAL')}>Leaderboard</button>
+            <button className={styles.btn} style={{background: 'linear-gradient(135deg, #1e40af, #1e3a8a)'}} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Leaderboard</button>
           </div>
 
           {isGuest && (
@@ -444,24 +470,40 @@ export default function Game() {
       )}
 
       {/* Leaderboard Modal */}
-      {showLeaderboard && (
+      {showLeaderboard && !isPlaying && (
         <div className={styles.overlay}>
-          <div className={styles.multiplayerBox} style={{ width: '80%', maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+          <div className={styles.multiplayerBox} style={{ width: '90%', maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <h2 className={styles.title} style={{fontSize: '3rem', marginBottom: '1rem'}}>Leaderboards</h2>
             
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '1.5rem', width: '100%' }}>
-              <button 
-                onClick={() => loadLeaderboard('GLOBAL')}
-                style={{ flex: 1, padding: '10px', fontSize: '1.2rem', fontWeight: 'bold', background: leaderboardTab === 'GLOBAL' ? '#3b82f6' : 'rgba(255,255,255,0.1)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-              >Global Top</button>
-              <button 
-                onClick={() => loadLeaderboard('PERSONAL')}
-                style={{ flex: 1, padding: '10px', fontSize: '1.2rem', fontWeight: 'bold', background: leaderboardTab === 'PERSONAL' ? '#3b82f6' : 'rgba(255,255,255,0.1)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-              >My History</button>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', width: '100%' }}>
+              <button className={styles.btnSmall} style={{ flex: 1, background: leaderboardTab === 'GLOBAL' ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Global Top</button>
+              <button className={styles.btnSmall} style={{ flex: 1, background: leaderboardTab === 'PERSONAL' ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard('PERSONAL', leaderboardMode, matchDuration)}>My History</button>
             </div>
 
-            <h2 className={styles.title} style={{fontSize: '2rem', marginBottom: '1rem', alignSelf: 'center'}}>
-              {leaderboardTab === 'GLOBAL' ? `Global Best (${matchDuration}s)` : `Personal History (${matchDuration}s)`}
-            </h2>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', width: '100%', alignItems: 'center' }}>
+              <span style={{ fontWeight: 'bold' }}>Mode:</span>
+              <select 
+                className={styles.input} 
+                style={{ flex: 1, background: 'rgba(0,0,0,0.8)' }}
+                value={leaderboardMode}
+                onChange={(e) => loadLeaderboard(leaderboardTab, e.target.value, matchDuration)}
+              >
+                <option value="vanilla">Vanilla (Standard)</option>
+                <option value="numbers">Numbers Only</option>
+                <option value="punctuation">Punctuation Only</option>
+                <option value="numbers_punctuation">Numbers + Punctuation</option>
+                <option value="long_words">Long Words</option>
+                <option value="numbers_long_words">Numbers + Long Words</option>
+                <option value="punctuation_long_words">Punctuation + Long Words</option>
+                <option value="numbers_punctuation_long_words">All Mods (Chaotic)</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', width: '100%' }}>
+              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 60 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 60)}>1m</button>
+              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 180 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 180)}>3m</button>
+              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 300 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 300)}>5m</button>
+            </div>
             
             <div style={{ overflowY: 'auto', width: '100%', paddingRight: '10px', marginBottom: '1rem' }}>
               <table style={{width: '100%', textAlign: 'left', borderCollapse: 'collapse'}}>

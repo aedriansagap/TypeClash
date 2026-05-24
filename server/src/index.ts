@@ -113,13 +113,14 @@ app.post('/api/auth/login', async (req, res) => {
 // --- LEADERBOARD API --- //
 
 // Global Leaderboard (Best Score Per Player)
-app.get('/api/leaderboard/:duration', async (req, res) => {
+app.get('/api/leaderboard/:duration/:mode', async (req, res) => {
   try {
     const duration = parseInt(req.params.duration);
+    const mode = req.params.mode || 'vanilla';
     
     // Aggregation pipeline to get max score per user
     const topScores = await Score.aggregate([
-      { $match: { matchDuration: duration } },
+      { $match: { matchDuration: duration, mode: mode } },
       { $sort: { score: -1 } }, // Sort by score descending first
       { 
         $group: { 
@@ -158,10 +159,10 @@ app.get('/api/leaderboard/:duration', async (req, res) => {
 });
 
 // Personal Leaderboard (All Scores for a single player)
-app.get('/api/leaderboard/personal/:userId/:duration', async (req, res) => {
+app.get('/api/leaderboard/personal/:userId/:duration/:mode', async (req, res) => {
   try {
-    const { userId, duration } = req.params;
-    const scores = await Score.find({ userId, matchDuration: parseInt(duration) })
+    const { userId, duration, mode } = req.params;
+    const scores = await Score.find({ userId, matchDuration: parseInt(duration), mode: mode || 'vanilla' })
       .sort({ createdAt: -1 }) // Sort by newest first
       .limit(50);
       
@@ -178,7 +179,7 @@ app.get('/api/leaderboard/personal/:userId/:duration', async (req, res) => {
 });
 
 app.post('/api/score', async (req, res) => {
-  const { userId, score, maxCombo, matchDuration, survived } = req.body;
+  const { userId, score, maxCombo, matchDuration, survived, mode } = req.body;
   if (!userId || score === undefined) return res.status(400).json({ error: 'Missing data' });
   try {
     const newScore = new Score({
@@ -186,7 +187,8 @@ app.post('/api/score', async (req, res) => {
       score,
       maxCombo,
       matchDuration,
-      survived
+      survived,
+      mode: mode || 'vanilla'
     });
     await newScore.save();
     res.json({ success: true });
@@ -217,17 +219,18 @@ interface Player {
 interface RoomData {
   players: string[];
   duration: number; // 60, 180, 300
+  mods?: any;
 }
 
 const players = new Map<string, Player>();
 const rooms = new Map<string, RoomData>();
-let matchmakingQueue: Array<{ socketId: string, duration: number, userId?: string }> = [];
+let matchmakingQueue: Array<{ socketId: string, duration: number, userId?: string, modString: string, mods?: any }> = [];
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
-  socket.on('join_room', (data: { roomId: string, duration?: number, userId?: string }) => {
-    const { roomId, duration = 60, userId } = data;
+  socket.on('join_room', (data: { roomId: string, duration?: number, userId?: string, mods?: any }) => {
+    const { roomId, duration = 60, userId, mods } = data;
     socket.join(roomId);
     
     players.set(socket.id, { 
@@ -242,11 +245,12 @@ io.on('connection', (socket) => {
     
     let roomData = rooms.get(roomId);
     if (!roomData) {
-      roomData = { players: [], duration };
+      roomData = { players: [], duration, mods };
       rooms.set(roomId, roomData);
     } else if (data.duration && roomData.players.length === 0) {
-      // Room creator overrides duration
+      // Room creator overrides duration and mods
       roomData.duration = duration;
+      roomData.mods = mods;
     }
 
     if (!roomData.players.includes(socket.id)) {
@@ -264,16 +268,18 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('game_start', {
         seed: Math.random().toString(),
         duration: roomData.duration,
-        roomId
+        roomId,
+        mods: roomData.mods
       });
     }
   });
 
-  socket.on('find_match', (data: { duration?: number, userId?: string }) => {
-    const { duration = 60, userId } = data;
+  socket.on('find_match', (data: { duration?: number, userId?: string, mods?: any }) => {
+    const { duration = 60, userId, mods } = data;
+    const modString = JSON.stringify(mods || {});
     
-    // Check if someone else is in queue for the exact same duration
-    const matchIndex = matchmakingQueue.findIndex(p => p.duration === duration && p.socketId !== socket.id);
+    // Check if someone else is in queue for the exact same duration and mods
+    const matchIndex = matchmakingQueue.findIndex(p => p.duration === duration && p.modString === modString && p.socketId !== socket.id);
     
     if (matchIndex !== -1) {
       // Found a match
@@ -288,18 +294,19 @@ io.on('connection', (socket) => {
       players.set(socket.id, { id: socket.id, roomId, isFinished: false, score: 0, maxCombo: 0, survived: false, userId });
       players.set(opponent.socketId, { id: opponent.socketId, roomId, isFinished: false, score: 0, maxCombo: 0, survived: false, userId: opponent.userId });
       
-      const roomData = { players: [socket.id, opponent.socketId], duration };
+      const roomData = { players: [socket.id, opponent.socketId], duration, mods };
       rooms.set(roomId, roomData);
       
       io.to(roomId).emit('game_start', {
         seed: Math.random().toString(),
         duration: roomData.duration,
-        roomId
+        roomId,
+        mods: roomData.mods
       });
     } else {
       // No match found, join queue
       if (!matchmakingQueue.some(p => p.socketId === socket.id)) {
-        matchmakingQueue.push({ socketId: socket.id, duration, userId });
+        matchmakingQueue.push({ socketId: socket.id, duration, userId, modString, mods });
       }
       socket.emit('searching_for_match');
     }
@@ -329,12 +336,22 @@ io.on('connection', (socket) => {
     // Save to database if authenticated
     if (player.userId && roomData && mongoose.connection.readyState === 1) {
       try {
+        let modeStr = 'vanilla';
+        if (roomData.mods) {
+          const modArr = [];
+          if (roomData.mods.includeNumbers) modArr.push('numbers');
+          if (roomData.mods.includePunctuation) modArr.push('punctuation');
+          if (roomData.mods.longestWords) modArr.push('long_words');
+          if (modArr.length > 0) modeStr = modArr.join('_');
+        }
+
         const newScore = new Score({
           userId: player.userId,
           score: player.score,
           maxCombo: player.maxCombo,
           matchDuration: roomData.duration,
-          survived: player.survived
+          survived: player.survived,
+          mode: modeStr
         });
         await newScore.save();
       } catch (err) {

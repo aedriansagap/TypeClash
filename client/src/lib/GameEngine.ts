@@ -1,5 +1,5 @@
 import seedrandom from 'seedrandom';
-import { Dictionary, Difficulty } from './Dictionary';
+import { Dictionary, Difficulty, GameModifiers } from './Dictionary';
 
 export interface GameState {
   lives: number;
@@ -57,6 +57,7 @@ export class GameEngine {
   private baseSpawnInterval: number = 2000; // ms
   private currentSpawnInterval: number = 2000;
   private baseSpeed: number = 0.08; // Increased base speed
+  private modifiers?: GameModifiers;
 
   // Callbacks
   public onStateChange: (state: GameState & { maxCombo: number }) => void = () => {};
@@ -78,10 +79,11 @@ export class GameEngine {
     this.resize();
   }
 
-  public start(seed?: string, durationMs: number = 60000) {
+  public start(seed?: string, durationMs: number = 60000, modifiers?: GameModifiers) {
     // Initialize RNG with seed if provided, else random
     this.random = seedrandom(seed || Math.random().toString());
     
+    this.modifiers = modifiers;
     this.matchDuration = durationMs;
     this.state = { 
       lives: 3, combo: 0, maxCombo: 0, score: 0, isGameOver: false, 
@@ -278,7 +280,7 @@ export class GameEngine {
     let diff = Difficulty.EASY;
     if (difficultyMultiplier > 1.5) diff = Difficulty.HARD;
     
-    const text = Dictionary.getWord(this.random, diff);
+    const text = Dictionary.getWord(this.random, diff, this.modifiers);
     
     // Ensure word spawns fully within horizontal bounds
     this.ctx.font = '24px Inter, sans-serif';
