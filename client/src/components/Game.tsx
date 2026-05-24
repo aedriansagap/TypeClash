@@ -56,6 +56,10 @@ export default function Game() {
   const [leaderboardTab, setLeaderboardTab] = useState<'GLOBAL' | 'PERSONAL'>('GLOBAL');
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
 
+  // Mobile Detection
+  const [isMobile, setIsMobile] = useState(false);
+  const [dismissedMobileWarning, setDismissedMobileWarning] = useState(false);
+
   // Load from LocalStorage & Session Expiry
   useEffect(() => {
     const savedId = localStorage.getItem('typeclash_userid');
@@ -79,6 +83,13 @@ export default function Game() {
         handleLogout();
       }
     }
+
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768 || /Mobi|Android/i.test(navigator.userAgent));
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   useEffect(() => {
@@ -268,6 +279,19 @@ export default function Game() {
 
   return (
     <div className={styles.container}>
+      {/* Mobile Warning */}
+      {isMobile && !dismissedMobileWarning && (
+        <div className={styles.overlay} style={{ zIndex: 100 }}>
+          <div className={styles.multiplayerBox} style={{ maxWidth: '90%', textAlign: 'center' }}>
+            <h2 className={styles.title} style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>Mobile Detected</h2>
+            <p style={{ fontSize: '1.2rem', marginBottom: '2rem', lineHeight: '1.5', color: '#e2e8f0' }}>
+              TypeClash is a fast-paced typing game designed for physical keyboards. While you can play on a mobile device, the experience is highly optimized for Laptops and PCs.
+            </p>
+            <button className={styles.btn} onClick={() => setDismissedMobileWarning(true)}>Continue Anyway</button>
+          </div>
+        </div>
+      )}
+
       {/* HUD overlay */}
       {(isPlaying || gameState.isGameOver) && (
         <div className={styles.hud}>

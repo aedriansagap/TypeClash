@@ -163,3 +163,29 @@
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+@media (max-width: 768px) {
+  .title {
+    font-size: 3rem;
+  }
+  .subtitle {
+    font-size: 1.5rem;
+  }
+  .multiplayerBox {
+    width: 90% !important;
+    min-width: unset !important;
+    padding: 1.5rem;
+  }
+  .hud {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .stat {
+    font-size: 1rem;
+    padding: 6px 10px;
+  }
+  .btn {
+    padding: 12px 24px;
+    font-size: 1.2rem;
+  }
+}
