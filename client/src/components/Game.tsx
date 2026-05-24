@@ -55,6 +55,7 @@ export default function Game() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboardTab, setLeaderboardTab] = useState<'GLOBAL' | 'PERSONAL'>('GLOBAL');
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
 
   // Mobile Detection
   const [isMobile, setIsMobile] = useState(false);
@@ -382,10 +383,11 @@ export default function Game() {
       )}
 
       {/* Main Menu */}
-      {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && (
+      {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && !showHowToPlay && (
         <div className={styles.overlay}>
           <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <span style={{color: '#9ca3af', fontWeight: 'bold'}}>{username} {isGuest && '(Guest)'}</span>
+            <button onClick={() => setShowHowToPlay(true)} style={{ background: 'transparent', color: '#60a5fa', border: '1px solid #60a5fa', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>How to Play</button>
             <button onClick={handleLogout} style={{ background: 'transparent', color: '#f87171', border: '1px solid #f87171', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
           </div>
 
@@ -485,6 +487,28 @@ export default function Game() {
             </div>
             
             <button className={styles.btn} style={{ alignSelf: 'center' }} onClick={() => setShowLeaderboard(false)}>Back to Menu</button>
+          </div>
+        </div>
+      )}
+
+      {/* How to Play Modal */}
+      {showHowToPlay && (
+        <div className={styles.overlay}>
+          <div className={styles.multiplayerBox} style={{ width: '90%', maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <h2 className={styles.title} style={{fontSize: '3rem', marginBottom: '1rem'}}>How to Play</h2>
+            
+            <div style={{ textAlign: 'left', lineHeight: '1.6', fontSize: '1.1rem', color: '#e2e8f0', marginBottom: '2rem' }}>
+              <h3 style={{ color: '#4ade80', marginBottom: '0.5rem' }}>⌨️ The Basics</h3>
+              <p style={{ marginBottom: '1.5rem' }}>Words will fall from the top of the screen. Type them correctly before they hit the bottom! You have exactly <strong>3 lives</strong>.</p>
+              
+              <h3 style={{ color: '#fcd34d', marginBottom: '0.5rem' }}>🔥 Combos</h3>
+              <p style={{ marginBottom: '1.5rem' }}>Typing words flawlessly builds your combo multiplier. Making a mistake breaks the combo!</p>
+              
+              <h3 style={{ color: '#f87171', marginBottom: '0.5rem' }}>⚔️ Multiplayer Garbage</h3>
+              <p style={{ marginBottom: '1.5rem' }}>In multiplayer matches, every time you reach a <strong>Combo of 5</strong>, you instantly send a wave of fast "Garbage Words" to your opponent's screen. Overwhelm them to win!</p>
+            </div>
+
+            <button className={styles.btn} onClick={() => setShowHowToPlay(false)}>Understood!</button>
           </div>
         </div>
       )}
