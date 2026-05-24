@@ -42,7 +42,7 @@ app.post('/api/auth/guest', async (req, res) => {
     } else if (!user.isGuest) {
       return res.status(403).json({ error: 'Username is registered. Please log in with a password.' });
     }
-    const token = generateToken(user._id as string, user.username, true);
+    const token = generateToken(user._id.toString(), user.username, true);
     res.json({ id: user._id, username: user.username, token, isGuest: true });
   } catch(e: any) {
     console.error('Auth error:', e);
@@ -75,7 +75,7 @@ app.post('/api/auth/register', async (req, res) => {
       await user.save();
     }
 
-    const token = generateToken(user._id as string, user.username, false);
+    const token = generateToken(user._id.toString(), user.username, false);
     res.json({ id: user._id, username: user.username, token, isGuest: false });
   } catch (e: any) {
     console.error('Register error:', e);
@@ -102,7 +102,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid password' });
     }
 
-    const token = generateToken(user._id as string, user.username, false);
+    const token = generateToken(user._id.toString(), user.username, false);
     res.json({ id: user._id, username: user.username, token, isGuest: false });
   } catch (e: any) {
     console.error('Login error:', e);
