@@ -1,14 +1,13 @@
-# TypeClash ⚡️
+# TypeClash 
 
 > A high-performance, real-time competitive multiplayer typing game built for speed, accuracy, and absolute chaos. 
 
-![TypeClash Banner](https://via.placeholder.com/800x200/0f172a/38bdf8?text=TypeClash+Multiplayer+Typing)
 
-## 🎮 Overview
+##  Overview
 
 TypeClash takes the standard typing test and turns it into a competitive, Tetris-style survival game. Words fall from the top of the screen; type them accurately to destroy them. Build up your combo by typing flawlessly, and send **"Garbage"** (sped-up, chaotic junk words) directly to your opponent's screen to overwhelm them!
 
-### ✨ Key Features
+### Key Features
 - **Real-time Multiplayer:** Create private rooms, share a 6-digit code, and battle your friends head-to-head via WebSockets.
 - **Garbage Mechanics:** Every 5-combo multiplier achieved sends a chunk of garbage words to your opponent.
 - **Deterministic Synchronization:** Utilizes `seedrandom` to ensure both players get the exact same word spawns at the exact same time.
@@ -18,7 +17,7 @@ TypeClash takes the standard typing test and turns it into a competitive, Tetris
 
 ---
 
-## 🛠 Tech Stack
+##  Tech Stack
 
 **Frontend:**
 - [Next.js](https://nextjs.org/) (React)
@@ -33,7 +32,7 @@ TypeClash takes the standard typing test and turns it into a competitive, Tetris
 
 ---
 
-## 🚀 Running Locally
+##  Running Locally
 
 ### Prerequisites
 - Node.js v18+
@@ -57,7 +56,7 @@ npm run dev
 
 ---
 
-## 🌍 Production Deployment
+##  Production Deployment
 
 TypeClash is designed for a split-hosting architecture to bypass Serverless function limitations with WebSockets.
 
@@ -76,5 +75,5 @@ TypeClash is designed for a split-hosting architecture to bypass Serverless func
 
 ---
 
-## 📜 License
+##  License
 MIT License. Feel free to fork and build upon this!
