@@ -221,6 +221,7 @@ interface RoomData {
 
 const players = new Map<string, Player>();
 const rooms = new Map<string, RoomData>();
+let matchmakingQueue: Array<{ socketId: string, duration: number, userId?: string }> = [];
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -262,9 +263,50 @@ io.on('connection', (socket) => {
 
       io.to(roomId).emit('game_start', {
         seed: Math.random().toString(),
-        duration: roomData.duration
+        duration: roomData.duration,
+        roomId
       });
     }
+  });
+
+  socket.on('find_match', (data: { duration?: number, userId?: string }) => {
+    const { duration = 60, userId } = data;
+    
+    // Check if someone else is in queue for the exact same duration
+    const matchIndex = matchmakingQueue.findIndex(p => p.duration === duration && p.socketId !== socket.id);
+    
+    if (matchIndex !== -1) {
+      // Found a match
+      const opponent = matchmakingQueue.splice(matchIndex, 1)[0];
+      const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+      
+      // Join both to the room
+      socket.join(roomId);
+      const opponentSocket = io.sockets.sockets.get(opponent.socketId);
+      if (opponentSocket) opponentSocket.join(roomId);
+      
+      players.set(socket.id, { id: socket.id, roomId, isFinished: false, score: 0, maxCombo: 0, survived: false, userId });
+      players.set(opponent.socketId, { id: opponent.socketId, roomId, isFinished: false, score: 0, maxCombo: 0, survived: false, userId: opponent.userId });
+      
+      const roomData = { players: [socket.id, opponent.socketId], duration };
+      rooms.set(roomId, roomData);
+      
+      io.to(roomId).emit('game_start', {
+        seed: Math.random().toString(),
+        duration: roomData.duration,
+        roomId
+      });
+    } else {
+      // No match found, join queue
+      if (!matchmakingQueue.some(p => p.socketId === socket.id)) {
+        matchmakingQueue.push({ socketId: socket.id, duration, userId });
+      }
+      socket.emit('searching_for_match');
+    }
+  });
+
+  socket.on('cancel_match', () => {
+    matchmakingQueue = matchmakingQueue.filter(p => p.socketId !== socket.id);
   });
 
   socket.on('send_garbage', (amount: number) => {
@@ -336,6 +378,8 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
+    matchmakingQueue = matchmakingQueue.filter(p => p.socketId !== socket.id);
+    
     const player = players.get(socket.id);
     if (player) {
       const roomData = rooms.get(player.roomId);

@@ -59,6 +59,9 @@ export default function Game() {
   // Mobile Detection
   const [isMobile, setIsMobile] = useState(false);
   const [dismissedMobileWarning, setDismissedMobileWarning] = useState(false);
+  
+  // Auto Matchmaking
+  const [isSearchingAuto, setIsSearchingAuto] = useState(false);
 
   // Load from LocalStorage & Session Expiry
   useEffect(() => {
@@ -111,8 +114,9 @@ export default function Game() {
     if (!socketRef.current) {
       socketRef.current = io(SERVER_URL);
 
-      socketRef.current.on('game_start', (data: { seed: string, duration: number }) => {
+      socketRef.current.on('game_start', (data: { seed: string, duration: number, roomId?: string }) => {
         setWaitingForOpponent(false);
+        setIsSearchingAuto(false);
         setIsSinglePlayer(false);
         setIsPlaying(true);
         setOpponentDisconnected(false);
@@ -121,9 +125,14 @@ export default function Game() {
         setPlayerMetrics(null);
         setOpponentMetrics(null);
         setMatchDuration(data.duration);
+        if (data.roomId) setCurrentRoom(data.roomId);
         if (engineRef.current) {
           engineRef.current.start(data.seed, data.duration * 1000);
         }
+      });
+
+      socketRef.current.on('searching_for_match', () => {
+        setIsSearchingAuto(true);
       });
 
       socketRef.current.on('receive_garbage', (amount: number) => {
@@ -259,6 +268,15 @@ export default function Game() {
     engineRef.current?.start(Math.random().toString(), matchDuration * 1000);
   };
 
+  const findMatch = () => {
+    socketRef.current?.emit('find_match', { duration: matchDuration, userId });
+  };
+
+  const cancelMatch = () => {
+    socketRef.current?.emit('cancel_match');
+    setIsSearchingAuto(false);
+  };
+
   const returnToMenu = () => {
     setIsPlaying(false);
     setIsSinglePlayer(false);
@@ -268,6 +286,7 @@ export default function Game() {
     setOpponentDisconnected(false);
     setMatchResult(null);
     setWaitingForResult(false);
+    setIsSearchingAuto(false);
     setPlayerMetrics(null);
     setOpponentMetrics(null);
     setGameState(prev => ({...prev, isGameOver: false}));
@@ -399,15 +418,19 @@ export default function Game() {
             </div>
           )}
 
-          <div className={styles.multiplayerBox}>
+          <div className={styles.multiplayerBox} style={{ width: '100%', maxWidth: '400px' }}>
             <h3 className={styles.subtitle}>Multiplayer</h3>
-            <button className={styles.btn} onClick={createRoom}>Create Room</button>
-            <div className={styles.orDivider}>or</div>
-            <div className={styles.inputGroup}>
+            <button className={styles.btn} style={{ width: '100%', marginTop: '0', marginBottom: '1rem', background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={findMatch}>Find Match (Auto)</button>
+            <div className={styles.orDivider} style={{ marginBottom: '1rem' }}>or play privately</div>
+            <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginBottom: '1rem' }}>
+              <button className={styles.btnSmall} style={{ flex: 1, background: 'rgba(255,255,255,0.1)' }} onClick={createRoom}>Create Room</button>
+            </div>
+            <div className={styles.inputGroup} style={{ width: '100%' }}>
               <input 
                 type="text" 
                 className={styles.input} 
-                placeholder="Enter Room Code"
+                style={{ flex: 1 }}
+                placeholder="Room Code"
                 value={roomCode}
                 onChange={(e) => setRoomCode(e.target.value)}
               />
@@ -466,13 +489,24 @@ export default function Game() {
         </div>
       )}
 
-      {/* Waiting for Opponent */}
-      {waitingForOpponent && !isPlaying && (
+      {/* Auto Matchmaking Searching Overlay */}
+      {isSearchingAuto && !isPlaying && (
+        <div className={styles.overlay}>
+          <h2 className={styles.title} style={{ fontSize: '3rem' }}>Finding Match...</h2>
+          <p className={styles.scoreText}>Queue: {matchDuration}s Matches</p>
+          <div className={styles.loader}></div>
+          <button className={styles.btn} style={{ background: 'linear-gradient(135deg, #ef4444, #b91c1c)' }} onClick={cancelMatch}>Cancel Search</button>
+        </div>
+      )}
+
+      {/* Waiting for Opponent (Private Room) */}
+      {waitingForOpponent && !isPlaying && !isSearchingAuto && (
         <div className={styles.overlay}>
           <h2 className={styles.title}>Room: {currentRoom}</h2>
           <p className={styles.scoreText}>Match Time: {matchDuration}s</p>
           <p className={styles.scoreText}>Waiting for an opponent to join...</p>
           <div className={styles.loader}></div>
+          <button className={styles.btn} style={{ background: 'linear-gradient(135deg, #ef4444, #b91c1c)' }} onClick={returnToMenu}>Leave Room</button>
         </div>
       )}
 
