@@ -293,9 +293,9 @@ export default function Game() {
             {authMode === 'SELECT' && (
               <>
                 <h3 className={styles.subtitle}>Welcome</h3>
-                <button className={styles.btn} style={{width: '100%', marginBottom: '0.5rem'}} onClick={() => setAuthMode('GUEST')}>Play as Guest</button>
-                <button className={styles.btn} style={{width: '100%', marginBottom: '0.5rem', background: 'linear-gradient(135deg, #10b981, #059669)'}} onClick={() => setAuthMode('LOGIN')}>Log In</button>
-                <button className={styles.btn} style={{width: '100%', background: 'linear-gradient(135deg, #f59e0b, #ea580c)'}} onClick={() => setAuthMode('REGISTER')}>Create Account</button>
+                <button className={styles.btn} style={{width: '100%', marginBottom: '0.5rem', background: 'linear-gradient(135deg, #3b82f6, #2563eb)'}} onClick={() => setAuthMode('GUEST')}>Play as Guest</button>
+                <button className={styles.btn} style={{width: '100%', marginBottom: '0.5rem', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)'}} onClick={() => setAuthMode('LOGIN')}>Log In</button>
+                <button className={styles.btn} style={{width: '100%', background: 'linear-gradient(135deg, #1e40af, #1e3a8a)'}} onClick={() => setAuthMode('REGISTER')}>Create Account</button>
               </>
             )}
 
@@ -317,7 +317,7 @@ export default function Game() {
                 <h3 className={styles.subtitle}>Log In</h3>
                 <input type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
                 <input type="password" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAuth('/api/auth/login')} />
-                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem', background: 'linear-gradient(135deg, #10b981, #059669)'}} onClick={() => handleAuth('/api/auth/login')}>Log In</button>
+                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem'}} onClick={() => handleAuth('/api/auth/login')}>Log In</button>
                 <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} onClick={() => setAuthMode('SELECT')}>Back</button>
                 {authError && <p style={{color: '#ef4444', marginTop: '1rem'}}>{authError}</p>}
               </>
@@ -328,7 +328,7 @@ export default function Game() {
                 <h3 className={styles.subtitle}>Create Account</h3>
                 <input type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
                 <input type="password" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAuth('/api/auth/register')} />
-                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem', background: 'linear-gradient(135deg, #f59e0b, #ea580c)'}} onClick={() => handleAuth('/api/auth/register')}>Register</button>
+                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem'}} onClick={() => handleAuth('/api/auth/register')}>Register</button>
                 <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} onClick={() => setAuthMode('SELECT')}>Back</button>
                 {authError && <p style={{color: '#ef4444', marginTop: '1rem'}}>{authError}</p>}
               </>
@@ -364,7 +364,7 @@ export default function Game() {
 
           <div style={{display: 'flex', gap: '1rem', marginBottom: '2rem'}}>
             <button className={styles.btn} onClick={playSinglePlayer}>Single Player</button>
-            <button className={styles.btn} style={{background: 'linear-gradient(135deg, #f59e0b, #ea580c)'}} onClick={() => loadLeaderboard('GLOBAL')}>Leaderboard</button>
+            <button className={styles.btn} style={{background: 'linear-gradient(135deg, #1e40af, #1e3a8a)'}} onClick={() => loadLeaderboard('GLOBAL')}>Leaderboard</button>
           </div>
 
           {isGuest && (
