@@ -119,6 +119,16 @@
   gap: 0.5rem;
 }
 
+.menuGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  max-width: 1000px;
+  width: 90%;
+  margin: 0 auto;
+  align-items: start;
+}
+
 .input {
   padding: 12px 16px;
   border-radius: 8px;
@@ -187,5 +197,9 @@
   .btn {
     padding: 12px 24px;
     font-size: 1.2rem;
+  }
+  .menuGrid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
   }
 }

@@ -405,65 +405,73 @@ export default function Game() {
             <button onClick={handleLogout} style={{ background: 'transparent', color: '#f87171', border: '1px solid #f87171', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
           </div>
 
-          <h1 className={styles.title}>TypeClash</h1>
+          <h1 className={styles.title} style={{ marginBottom: '1rem' }}>TypeClash</h1>
           
-          <div className={styles.multiplayerBox} style={{ width: '100%', maxWidth: '400px', marginBottom: '1rem' }}>
-            <h3 className={styles.subtitle}>Match Duration</h3>
-            <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
-              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 60 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(60)}>1m</button>
-              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 180 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(180)}>3m</button>
-              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 300 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(300)}>5m</button>
-            </div>
-          </div>
+          <div className={styles.menuGrid}>
+            {/* Left Column: Settings & Account */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+              <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.5rem' }}>
+                <h3 className={styles.subtitle}>Match Duration</h3>
+                <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                  <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 60 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(60)}>1m</button>
+                  <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 180 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(180)}>3m</button>
+                  <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 300 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(300)}>5m</button>
+                </div>
+              </div>
 
-          <div className={styles.multiplayerBox} style={{ width: '100%', maxWidth: '400px', marginBottom: '1rem' }}>
-            <h3 className={styles.subtitle} style={{ fontSize: '1.5rem' }}>Special Mods</h3>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input type="checkbox" checked={mods.includeNumbers} onChange={(e) => setMods({...mods, includeNumbers: e.target.checked})} style={{ width: '20px', height: '20px' }} />
-                Numbers
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input type="checkbox" checked={mods.includePunctuation} onChange={(e) => setMods({...mods, includePunctuation: e.target.checked})} style={{ width: '20px', height: '20px' }} />
-                Punctuation
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input type="checkbox" checked={mods.longestWords} onChange={(e) => setMods({...mods, longestWords: e.target.checked})} style={{ width: '20px', height: '20px' }} />
-                Long Words
-              </label>
-            </div>
-          </div>
+              <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.5rem' }}>
+                <h3 className={styles.subtitle} style={{ fontSize: '1.5rem' }}>Special Mods</h3>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={mods.includeNumbers} onChange={(e) => setMods({...mods, includeNumbers: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                    Numbers
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={mods.includePunctuation} onChange={(e) => setMods({...mods, includePunctuation: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                    Punctuation
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={mods.longestWords} onChange={(e) => setMods({...mods, longestWords: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                    Long Words
+                  </label>
+                </div>
+              </div>
 
-          <div style={{display: 'flex', gap: '1rem', marginBottom: '2rem'}}>
-            <button className={styles.btn} onClick={playSinglePlayer}>Single Player</button>
-            <button className={styles.btn} style={{background: 'linear-gradient(135deg, #1e40af, #1e3a8a)'}} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Leaderboard</button>
-          </div>
-
-          {isGuest && (
-            <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b', padding: '1rem', borderRadius: '8px', marginBottom: '2rem', textAlign: 'center', maxWidth: '400px' }}>
-              <p style={{ color: '#fcd34d', marginBottom: '0.5rem' }}>Playing as Guest</p>
-              <p style={{ fontSize: '0.9rem', color: '#d1d5db', marginBottom: '1rem' }}>Create a password to permanently save your scores and profile!</p>
-              <button className={styles.btnSmall} onClick={() => { setAuthMode('REGISTER'); setUserId(null); }}>Upgrade to Account</button>
+              {isGuest && (
+                <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b', padding: '1rem', borderRadius: '8px', textAlign: 'center', width: '100%' }}>
+                  <p style={{ color: '#fcd34d', marginBottom: '0.5rem' }}>Playing as Guest</p>
+                  <p style={{ fontSize: '0.9rem', color: '#d1d5db', marginBottom: '1rem' }}>Create a password to permanently save your scores and profile!</p>
+                  <button className={styles.btnSmall} onClick={() => { setAuthMode('REGISTER'); setUserId(null); }}>Upgrade to Account</button>
+                </div>
+              )}
             </div>
-          )}
 
-          <div className={styles.multiplayerBox} style={{ width: '100%', maxWidth: '400px' }}>
-            <h3 className={styles.subtitle}>Multiplayer</h3>
-            <button className={styles.btn} style={{ width: '100%', marginTop: '0', marginBottom: '1rem', background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={findMatch}>Find Match (Auto)</button>
-            <div className={styles.orDivider} style={{ marginBottom: '1rem' }}>or play privately</div>
-            <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginBottom: '1rem' }}>
-              <button className={styles.btnSmall} style={{ flex: 1, background: 'rgba(255,255,255,0.1)' }} onClick={createRoom}>Create Room</button>
-            </div>
-            <div className={styles.inputGroup} style={{ width: '100%' }}>
-              <input 
-                type="text" 
-                className={styles.input} 
-                style={{ flex: 1 }}
-                placeholder="Room Code"
-                value={roomCode}
-                onChange={(e) => setRoomCode(e.target.value)}
-              />
-              <button className={styles.btnSmall} onClick={joinRoom}>Join</button>
+            {/* Right Column: Game Modes & Multiplayer */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+              <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.5rem' }}>
+                <h3 className={styles.subtitle}>Multiplayer</h3>
+                <button className={styles.btn} style={{ width: '100%', marginTop: '0', marginBottom: '1rem', background: 'linear-gradient(135deg, #10b981, #059669)', fontSize: '1.2rem', padding: '12px' }} onClick={findMatch}>Find Match (Auto)</button>
+                <div className={styles.orDivider} style={{ marginBottom: '1rem' }}>or play privately</div>
+                <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginBottom: '1rem' }}>
+                  <button className={styles.btnSmall} style={{ flex: 1, background: 'rgba(255,255,255,0.1)' }} onClick={createRoom}>Create Room</button>
+                </div>
+                <div className={styles.inputGroup} style={{ width: '100%' }}>
+                  <input 
+                    type="text" 
+                    className={styles.input} 
+                    style={{ flex: 1 }}
+                    placeholder="Room Code"
+                    value={roomCode}
+                    onChange={(e) => setRoomCode(e.target.value)}
+                  />
+                  <button className={styles.btnSmall} onClick={joinRoom}>Join</button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+                <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px' }} onClick={playSinglePlayer}>Single Player</button>
+                <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #1e40af, #1e3a8a)' }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Leaderboard</button>
+              </div>
             </div>
           </div>
         </div>
