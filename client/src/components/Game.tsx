@@ -285,7 +285,7 @@ export default function Game() {
           <div className={styles.multiplayerBox} style={{ maxWidth: '90%', textAlign: 'center' }}>
             <h2 className={styles.title} style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>Mobile Detected</h2>
             <p style={{ fontSize: '1.2rem', marginBottom: '2rem', lineHeight: '1.5', color: '#e2e8f0' }}>
-              TypeClash is a fast-paced typing game designed for physical keyboards. While you can play on a mobile device, the experience is highly optimized for Laptops and PCs.
+              TypeClash is a fast-paced competitive typing game that requires a <strong>physical keyboard</strong> to play. Mobile touch-keyboards will not activate during gameplay. If you are on a tablet or phone, please connect a Bluetooth keyboard for the best experience!
             </p>
             <button className={styles.btn} onClick={() => setDismissedMobileWarning(true)}>Continue Anyway</button>
           </div>
