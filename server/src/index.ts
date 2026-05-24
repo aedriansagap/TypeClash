@@ -90,6 +90,7 @@ interface Player {
   maxCombo: number;
   survived: boolean;
   userId?: string;
+  metrics?: { wpm: number; accuracy: number; garbageSent: number; };
 }
 
 interface RoomData {
@@ -150,7 +151,7 @@ io.on('connection', (socket) => {
     if (player) socket.to(player.roomId).emit('receive_garbage', amount);
   });
 
-  socket.on('game_over', async (data: { score: number, maxCombo: number, survived: boolean }) => {
+  socket.on('game_over', async (data: { score: number, maxCombo: number, survived: boolean, metrics?: { wpm: number, accuracy: number, garbageSent: number } }) => {
     const player = players.get(socket.id);
     if (!player) return;
 
@@ -158,6 +159,7 @@ io.on('connection', (socket) => {
     player.score = data.score;
     player.maxCombo = data.maxCombo;
     player.survived = data.survived;
+    if (data.metrics) player.metrics = data.metrics;
 
     const roomData = rooms.get(player.roomId);
     
@@ -192,11 +194,19 @@ io.on('connection', (socket) => {
       }
 
       if (winnerId === null) {
-        io.to(player.roomId).emit('match_result', { result: 'DRAW' });
+        io.to(player.id).emit('match_result', { result: 'DRAW', playerMetrics: player.metrics, opponentMetrics: opponent.metrics });
+        io.to(opponent.id).emit('match_result', { result: 'DRAW', playerMetrics: opponent.metrics, opponentMetrics: player.metrics });
       } else {
-        io.to(winnerId).emit('match_result', { result: 'WIN' });
-        const loserId = winnerId === player.id ? opponent.id : player.id;
-        io.to(loserId).emit('match_result', { result: 'LOSE' });
+        io.to(player.id).emit('match_result', { 
+          result: player.id === winnerId ? 'WIN' : 'LOSE', 
+          playerMetrics: player.metrics, 
+          opponentMetrics: opponent.metrics 
+        });
+        io.to(opponent.id).emit('match_result', { 
+          result: opponent.id === winnerId ? 'WIN' : 'LOSE', 
+          playerMetrics: opponent.metrics, 
+          opponentMetrics: player.metrics 
+        });
       }
     } else {
       socket.emit('waiting_for_result');

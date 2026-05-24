@@ -8,6 +8,9 @@ export interface GameState {
   isGameOver: boolean;
   timeLeft: number;
   survived: boolean;
+  totalKeystrokes: number;
+  correctKeystrokes: number;
+  garbageSent: number;
 }
 
 interface WordEntity {
@@ -39,6 +42,9 @@ export class GameEngine {
     isGameOver: false,
     timeLeft: 60,
     survived: false,
+    totalKeystrokes: 0,
+    correctKeystrokes: 0,
+    garbageSent: 0,
   };
   
   private words: WordEntity[] = [];
@@ -55,7 +61,7 @@ export class GameEngine {
   // Callbacks
   public onStateChange: (state: GameState & { maxCombo: number }) => void = () => {};
   public onGarbageGenerated: (amount: number) => void = () => {};
-  public onGameOverCallback: (score: number, maxCombo: number, survived: boolean) => void = () => {};
+  public onGameOverCallback: (score: number, maxCombo: number, survived: boolean, metrics: { wpm: number, accuracy: number, garbageSent: number }) => void = () => {};
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -77,7 +83,11 @@ export class GameEngine {
     this.random = seedrandom(seed || Math.random().toString());
     
     this.matchDuration = durationMs;
-    this.state = { lives: 3, combo: 0, maxCombo: 0, score: 0, isGameOver: false, timeLeft: Math.ceil(durationMs/1000), survived: false };
+    this.state = { 
+      lives: 3, combo: 0, maxCombo: 0, score: 0, isGameOver: false, 
+      timeLeft: Math.ceil(durationMs/1000), survived: false,
+      totalKeystrokes: 0, correctKeystrokes: 0, garbageSent: 0 
+    };
     this.words = [];
     this.targetedWordId = null;
     this.timeElapsed = 0;
@@ -131,7 +141,14 @@ export class GameEngine {
       this.state.isGameOver = true;
       this.state.survived = true;
       this.notifyState();
-      this.onGameOverCallback(this.state.score, this.state.maxCombo, this.state.survived);
+      
+      const minutes = this.timeElapsed / 60000;
+      const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
+      const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
+      
+      this.onGameOverCallback(this.state.score, this.state.maxCombo, this.state.survived, {
+        wpm, accuracy, garbageSent: this.state.garbageSent
+      });
       return;
     }
 
@@ -206,6 +223,8 @@ export class GameEngine {
     
     const key = e.key;
     if (key.length !== 1) return; // Only process printable single characters
+    
+    this.state.totalKeystrokes += 1;
 
     if (this.targetedWordId) {
       // We are already targeting a word
@@ -220,6 +239,7 @@ export class GameEngine {
       if (key === expectedChar) {
         // Correct hit
         target.typed += key;
+        this.state.correctKeystrokes += 1;
         
         // Word completed
         if (target.typed === target.text) {
@@ -239,6 +259,7 @@ export class GameEngine {
         const target = potentialTargets[0];
         this.targetedWordId = target.id;
         target.typed += key;
+        this.state.correctKeystrokes += 1;
         
         if (target.typed === target.text) {
           this.destroyWord(target.id);
@@ -295,6 +316,7 @@ export class GameEngine {
     // Check garbage mechanics (e.g., every 5 combo sends 1 garbage)
     if (this.state.combo > 0 && this.state.combo % 5 === 0) {
       this.state.score += 50; // Bonus score
+      this.state.garbageSent += 1;
       // Send garbage (emit to network)
       this.onGarbageGenerated(1); 
     }
@@ -315,7 +337,14 @@ export class GameEngine {
       this.state.isGameOver = true;
       this.state.survived = false;
       this.notifyState();
-      this.onGameOverCallback(this.state.score, this.state.maxCombo, this.state.survived);
+      
+      const minutes = this.timeElapsed / 60000;
+      const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
+      const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
+      
+      this.onGameOverCallback(this.state.score, this.state.maxCombo, this.state.survived, {
+        wpm, accuracy, garbageSent: this.state.garbageSent
+      });
     } else {
       this.notifyState();
     }
