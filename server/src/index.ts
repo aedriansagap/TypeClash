@@ -3,10 +3,14 @@ import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import mongoose from 'mongoose';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { User, Score } from './models';
 
 // Connect to MongoDB
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/typeclash';
+const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_dev_key_typeclash';
+
 mongoose.connect(MONGO_URI)
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error. Leaderboards will not save locally if DB is missing:', err.message));
@@ -20,7 +24,13 @@ app.get('/', (req, res) => {
   res.status(200).send('TypeClash Server is running smoothly!');
 });
 
-// REST API for Auth and Leaderboards
+// --- AUTHENTICATION API --- //
+
+const generateToken = (userId: string, username: string, isGuest: boolean) => {
+  return jwt.sign({ id: userId, username, isGuest }, JWT_SECRET, { expiresIn: '7d' });
+};
+
+// 1. Guest Login
 app.post('/api/auth/guest', async (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username required' });
@@ -29,24 +39,113 @@ app.post('/api/auth/guest', async (req, res) => {
     if (!user) {
       user = new User({ username, isGuest: true });
       await user.save();
+    } else if (!user.isGuest) {
+      return res.status(403).json({ error: 'Username is registered. Please log in with a password.' });
     }
-    res.json({ id: user._id, username: user.username });
+    const token = generateToken(user._id as string, user.username, true);
+    res.json({ id: user._id, username: user.username, token, isGuest: true });
   } catch(e: any) {
     console.error('Auth error:', e);
     res.status(500).json({ error: `Database error: ${e.message}` });
   }
 });
 
+// 2. Register (or convert Guest to Registered)
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  
+  try {
+    let user = await User.findOne({ username });
+    
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
+    if (user) {
+      if (user.isGuest) {
+        // Upgrade guest account to permanent
+        user.isGuest = false;
+        user.passwordHash = passwordHash;
+        await user.save();
+      } else {
+        return res.status(409).json({ error: 'Username already taken' });
+      }
+    } else {
+      user = new User({ username, passwordHash, isGuest: false });
+      await user.save();
+    }
+
+    const token = generateToken(user._id as string, user.username, false);
+    res.json({ id: user._id, username: user.username, token, isGuest: false });
+  } catch (e: any) {
+    console.error('Register error:', e);
+    res.status(500).json({ error: `Database error: ${e.message}` });
+  }
+});
+
+// 3. Login
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  
+  try {
+    const user = await User.findOne({ username });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (user.isGuest) {
+      return res.status(400).json({ error: 'This is a guest account. Please use Play as Guest or create a password.' });
+    }
+    
+    const isMatch = await bcrypt.compare(password, user.passwordHash || '');
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+
+    const token = generateToken(user._id as string, user.username, false);
+    res.json({ id: user._id, username: user.username, token, isGuest: false });
+  } catch (e: any) {
+    console.error('Login error:', e);
+    res.status(500).json({ error: `Database error: ${e.message}` });
+  }
+});
+
+// --- LEADERBOARD API --- //
+
+// Global Leaderboard (Best Score Per Player)
 app.get('/api/leaderboard/:duration', async (req, res) => {
   try {
     const duration = parseInt(req.params.duration);
-    const scores = await Score.find({ matchDuration: duration })
-      .sort({ score: -1 })
-      .limit(50)
-      .populate('userId', 'username');
     
-    res.json(scores.map(s => ({
-      username: (s.userId as any)?.username || 'Unknown',
+    // Aggregation pipeline to get max score per user
+    const topScores = await Score.aggregate([
+      { $match: { matchDuration: duration } },
+      { $sort: { score: -1 } }, // Sort by score descending first
+      { 
+        $group: { 
+          _id: "$userId", 
+          maxScoreId: { $first: "$_id" },
+          score: { $first: "$score" },
+          maxCombo: { $first: "$maxCombo" },
+          survived: { $first: "$survived" },
+          createdAt: { $first: "$createdAt" }
+        } 
+      },
+      { $sort: { score: -1 } }, // Re-sort grouped results by score
+      { $limit: 50 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user"
+        }
+      },
+      { $unwind: "$user" }
+    ]);
+
+    res.json(topScores.map(s => ({
+      username: s.user.username,
       score: s.score,
       maxCombo: s.maxCombo,
       survived: s.survived,
@@ -54,6 +153,26 @@ app.get('/api/leaderboard/:duration', async (req, res) => {
     })));
   } catch(e: any) {
     console.error('Leaderboard error:', e);
+    res.status(500).json({ error: `Database error: ${e.message}` });
+  }
+});
+
+// Personal Leaderboard (All Scores for a single player)
+app.get('/api/leaderboard/personal/:userId/:duration', async (req, res) => {
+  try {
+    const { userId, duration } = req.params;
+    const scores = await Score.find({ userId, matchDuration: parseInt(duration) })
+      .sort({ createdAt: -1 }) // Sort by newest first
+      .limit(50);
+      
+    res.json(scores.map(s => ({
+      score: s.score,
+      maxCombo: s.maxCombo,
+      survived: s.survived,
+      date: s.createdAt
+    })));
+  } catch(e: any) {
+    console.error('Personal Leaderboard error:', e);
     res.status(500).json({ error: `Database error: ${e.message}` });
   }
 });
@@ -76,6 +195,8 @@ app.post('/api/score', async (req, res) => {
     res.status(500).json({ error: `Database error: ${e.message}` });
   }
 });
+
+// --- SOCKET.IO --- //
 
 const server = http.createServer(app);
 const io = new Server(server, {
