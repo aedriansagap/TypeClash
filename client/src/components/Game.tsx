@@ -65,6 +65,10 @@ export default function Game() {
   // Auto Matchmaking
   const [isSearchingAuto, setIsSearchingAuto] = useState(false);
 
+  // Profile State
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileData, setProfileData] = useState<any>(null);
+
   // Game Modifiers
   const [mods, setMods] = useState({ includeNumbers: false, includePunctuation: false, longestWords: false });
   const [leaderboardMode, setLeaderboardMode] = useState('vanilla');
@@ -195,7 +199,7 @@ export default function Game() {
             fetch(`${SERVER_URL}/api/score`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId, score, maxCombo, matchDuration, survived, mode: modeStr })
+              body: JSON.stringify({ userId, score, maxCombo, matchDuration, survived, mode: modeStr, isPvP: false })
             }).catch(console.error);
           }
         } else if (!isSinglePlayer && socketRef.current) {
@@ -239,6 +243,18 @@ export default function Game() {
     setPassword('');
     setIsGuest(false);
     setAuthMode('SELECT');
+  };
+
+  const loadProfile = async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/profile/${userId}`);
+      const data = await res.json();
+      setProfileData(data);
+      setShowProfile(true);
+    } catch (err) {
+      console.error('Failed to load profile:', err);
+    }
   };
 
   const loadLeaderboard = async (tab: 'GLOBAL' | 'PERSONAL', mode: string = leaderboardMode, duration: number = matchDuration) => {
@@ -397,10 +413,11 @@ export default function Game() {
       )}
 
       {/* Main Menu */}
-      {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && !showHowToPlay && (
+      {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && !showHowToPlay && !showProfile && (
         <div className={styles.overlay}>
           <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <span style={{color: '#9ca3af', fontWeight: 'bold'}}>{username} {isGuest && '(Guest)'}</span>
+            <button onClick={loadProfile} style={{ background: 'transparent', color: '#c084fc', border: '1px solid #c084fc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Profile</button>
             <button onClick={() => setShowHowToPlay(true)} style={{ background: 'transparent', color: '#60a5fa', border: '1px solid #60a5fa', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>How to Play</button>
             <button onClick={handleLogout} style={{ background: 'transparent', color: '#f87171', border: '1px solid #f87171', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
           </div>
@@ -560,6 +577,41 @@ export default function Game() {
             </div>
 
             <button className={styles.btn} onClick={() => setShowHowToPlay(false)}>Understood!</button>
+          </div>
+        </div>
+      )}
+
+      {/* Profile Modal */}
+      {showProfile && profileData && !isPlaying && (
+        <div className={styles.overlay}>
+          <div className={styles.multiplayerBox} style={{ width: '90%', maxWidth: '500px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <h2 className={styles.title} style={{fontSize: '2.5rem', marginBottom: '0.5rem'}}>{profileData.username}'s Profile</h2>
+            <p style={{ color: '#9ca3af', marginBottom: '2rem', fontSize: '1.2rem' }}>Joined: {new Date(profileData.joinedDate).toLocaleDateString()}</p>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', width: '100%', marginBottom: '2rem' }}>
+              <div style={{ background: 'rgba(0,0,0,0.5)', padding: '1.5rem', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#60a5fa' }}>{profileData.totalGamesPlayed}</div>
+                <div style={{ fontSize: '1rem', color: '#9ca3af', marginTop: '0.5rem' }}>Total Games</div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.5)', padding: '1.5rem', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#f87171' }}>{profileData.totalPvPGames}</div>
+                <div style={{ fontSize: '1rem', color: '#9ca3af', marginTop: '0.5rem' }}>PvP Matches</div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.5)', padding: '1.5rem', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#fcd34d' }}>x{profileData.maxCombo}</div>
+                <div style={{ fontSize: '1rem', color: '#9ca3af', marginTop: '0.5rem' }}>Max Combo</div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.5)', padding: '1.5rem', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#4ade80' }}>{profileData.personalBestScore}</div>
+                <div style={{ fontSize: '1rem', color: '#9ca3af', marginTop: '0.5rem' }}>Personal Best</div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.5)', padding: '1.5rem', borderRadius: '8px', textAlign: 'center', gridColumn: 'span 2', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '3rem', fontWeight: 'bold', color: '#c084fc' }}>{profileData.totalGamesPlayed > 0 ? Math.round((profileData.gamesSurvived / profileData.totalGamesPlayed) * 100) : 0}%</div>
+                <div style={{ fontSize: '1.1rem', color: '#9ca3af', marginTop: '0.5rem' }}>Overall Survival Rate</div>
+              </div>
+            </div>
+
+            <button className={styles.btn} onClick={() => setShowProfile(false)}>Close Profile</button>
           </div>
         </div>
       )}

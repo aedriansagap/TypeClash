@@ -178,8 +178,48 @@ app.get('/api/leaderboard/personal/:userId/:duration/:mode', async (req, res) =>
   }
 });
 
+// Comprehensive Profile Endpoint
+app.get('/api/profile/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const stats = await Score.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+      { 
+        $group: { 
+          _id: null,
+          totalGamesPlayed: { $sum: 1 },
+          totalPvPGames: { $sum: { $cond: ["$isPvP", 1, 0] } },
+          maxCombo: { $max: "$maxCombo" },
+          personalBestScore: { $max: "$score" },
+          gamesSurvived: { $sum: { $cond: ["$survived", 1, 0] } }
+        }
+      }
+    ]);
+
+    const result = stats.length > 0 ? stats[0] : {
+      totalGamesPlayed: 0,
+      totalPvPGames: 0,
+      maxCombo: 0,
+      personalBestScore: 0,
+      gamesSurvived: 0
+    };
+
+    res.json({
+      username: user.username,
+      joinedDate: user.createdAt,
+      ...result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.post('/api/score', async (req, res) => {
-  const { userId, score, maxCombo, matchDuration, survived, mode } = req.body;
+  const { userId, score, maxCombo, matchDuration, survived, mode, isPvP } = req.body;
   if (!userId || score === undefined) return res.status(400).json({ error: 'Missing data' });
   try {
     const newScore = new Score({
@@ -188,7 +228,8 @@ app.post('/api/score', async (req, res) => {
       maxCombo,
       matchDuration,
       survived,
-      mode: mode || 'vanilla'
+      mode: mode || 'vanilla',
+      isPvP: isPvP || false
     });
     await newScore.save();
     res.json({ success: true });
@@ -351,7 +392,8 @@ io.on('connection', (socket) => {
           maxCombo: player.maxCombo,
           matchDuration: roomData.duration,
           survived: player.survived,
-          mode: modeStr
+          mode: modeStr,
+          isPvP: true
         });
         await newScore.save();
       } catch (err) {

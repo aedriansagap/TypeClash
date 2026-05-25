@@ -23,6 +23,7 @@ export interface IScore extends Document {
   matchDuration: number; // in seconds (60, 180, 300)
   survived: boolean;
   mode: string;
+  isPvP: boolean;
   createdAt: Date;
 }
 
@@ -33,6 +34,7 @@ const ScoreSchema: Schema = new Schema({
   matchDuration: { type: Number, required: true }, // e.g., 60, 180, 300 seconds
   survived: { type: Boolean, default: false },
   mode: { type: String, default: 'vanilla' }, // e.g., 'vanilla', 'numbers', 'long_words'
+  isPvP: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 
