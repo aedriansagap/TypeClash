@@ -345,13 +345,37 @@ export default function Game() {
       {/* HUD overlay */}
       {(isPlaying || gameState.isGameOver) && (
         <div className={styles.hud}>
-          <div className={styles.stat}>Score: {gameState.score}</div>
-          <div className={styles.stat}>Time: {gameState.timeLeft}s</div>
-          {currentRoom && <div className={styles.stat}>Room: {currentRoom}</div>}
-          <div className={styles.stat} style={{ color: gameState.combo > 5 ? '#fcd34d' : 'white' }}>
-            Combo: x{gameState.combo}
+          <div className={styles.statPanel}>
+            <div className={styles.statItem}>
+              <span style={{ fontSize: '1.2rem' }}>🎯</span>
+              <span className={styles.statLabel}>Score</span>
+              <span className={styles.statValue}>{gameState.score}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span style={{ fontSize: '1.2rem' }}>🕒</span>
+              <span className={styles.statLabel}>Time</span>
+              <span className={styles.statValue} style={{ color: gameState.timeLeft <= 10 ? '#ef4444' : '#f8fafc' }}>{gameState.timeLeft}s</span>
+            </div>
+            {currentRoom && (
+              <div className={styles.statItem}>
+                <span style={{ fontSize: '1.2rem' }}>🗝️</span>
+                <span className={styles.statLabel}>Room</span>
+                <span className={styles.statValue}>{currentRoom}</span>
+              </div>
+            )}
           </div>
-          <div className={styles.stat}>Lives: {'❤️'.repeat(Math.max(0, gameState.lives))}</div>
+          
+          <div className={styles.statPanel}>
+            <div className={styles.statItem} style={{ color: gameState.combo > 5 ? '#fcd34d' : 'inherit' }}>
+              <span style={{ fontSize: '1.2rem' }}>🔥</span>
+              <span className={styles.statLabel} style={{ color: gameState.combo > 5 ? '#fde68a' : '#94a3b8' }}>Combo</span>
+              <span className={styles.statValue} style={{ color: gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>x{gameState.combo}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>Lives</span>
+              <span className={styles.statValue} style={{ letterSpacing: '2px' }}>{'❤️'.repeat(Math.max(0, gameState.lives))}</span>
+            </div>
+          </div>
         </div>
       )}
       
