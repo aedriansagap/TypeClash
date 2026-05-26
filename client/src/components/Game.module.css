@@ -119,6 +119,14 @@
   gap: 0.5rem;
 }
 
+.noScrollbar::-webkit-scrollbar {
+  display: none;
+}
+.noScrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .menuGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;

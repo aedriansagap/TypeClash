@@ -430,9 +430,10 @@ export default function Game() {
               <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.5rem' }}>
                 <h3 className={styles.subtitle}>Match Duration</h3>
                 <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
-                  <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 60 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(60)}>1m</button>
-                  <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 180 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(180)}>3m</button>
-                  <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 300 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(300)}>5m</button>
+                  <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 30 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(30)}>30s</button>
+                  <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 60 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(60)}>1m</button>
+                  <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 180 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(180)}>3m</button>
+                  <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 300 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(300)}>5m</button>
                 </div>
               </div>
 
@@ -497,7 +498,7 @@ export default function Game() {
       {/* Leaderboard Modal */}
       {showLeaderboard && !isPlaying && (
         <div className={styles.overlay}>
-          <div className={styles.multiplayerBox} style={{ width: '90%', maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
             <h2 className={styles.title} style={{fontSize: '3rem', marginBottom: '1rem'}}>Leaderboards</h2>
             
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', width: '100%' }}>
@@ -525,9 +526,10 @@ export default function Game() {
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', width: '100%' }}>
-              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 60 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 60)}>1m</button>
-              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 180 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 180)}>3m</button>
-              <button className={styles.btnSmall} style={{ flex: 1, background: matchDuration === 300 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 300)}>5m</button>
+              <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 30 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 30)}>30s</button>
+              <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 60 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 60)}>1m</button>
+              <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 180 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 180)}>3m</button>
+              <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 300 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 300)}>5m</button>
             </div>
             
             <div style={{ overflowY: 'auto', width: '100%', paddingRight: '10px', marginBottom: '1rem' }}>
@@ -562,7 +564,7 @@ export default function Game() {
       {/* How to Play Modal */}
       {showHowToPlay && (
         <div className={styles.overlay}>
-          <div className={styles.multiplayerBox} style={{ width: '90%', maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
             <h2 className={styles.title} style={{fontSize: '3rem', marginBottom: '1rem'}}>How to Play</h2>
             
             <div style={{ textAlign: 'left', lineHeight: '1.6', fontSize: '1.1rem', color: '#e2e8f0', marginBottom: '2rem' }}>
@@ -584,7 +586,7 @@ export default function Game() {
       {/* Profile Modal */}
       {showProfile && profileData && !isPlaying && (
         <div className={styles.overlay}>
-          <div className={styles.multiplayerBox} style={{ width: '90%', maxWidth: '500px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '500px', maxHeight: '80vh', overflowY: 'auto' }}>
             <h2 className={styles.title} style={{fontSize: '2.5rem', marginBottom: '0.5rem'}}>{profileData.username}'s Profile</h2>
             <p style={{ color: '#9ca3af', marginBottom: '2rem', fontSize: '1.2rem' }}>Joined: {new Date(profileData.joinedDate).toLocaleDateString()}</p>
             
