@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import styles from './Game.module.css';
 
@@ -65,9 +66,12 @@ export default function Game() {
   // Auto Matchmaking
   const [isSearchingAuto, setIsSearchingAuto] = useState(false);
 
-  // Profile State
+  // Profile & Chart State
   const [showProfile, setShowProfile] = useState(false);
   const [profileData, setProfileData] = useState<any>(null);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartDuration, setChartDuration] = useState<number>(60);
+  const [chartMode, setChartMode] = useState<string>('vanilla');
 
   // Game Modifiers
   const [mods, setMods] = useState({ includeNumbers: false, includePunctuation: false, longestWords: false });
@@ -245,12 +249,33 @@ export default function Game() {
     setAuthMode('SELECT');
   };
 
+  const loadChartData = async (duration: number = chartDuration, mode: string = chartMode) => {
+    if (!userId) return;
+    try {
+      setChartDuration(duration);
+      setChartMode(mode);
+      const res = await fetch(`${SERVER_URL}/api/leaderboard/personal/${userId}/${duration}/${mode}`);
+      const data = await res.json();
+      // Data comes newest first, reverse for chronological chart
+      const formatted = data.reverse().map((d: any, idx: number) => ({
+        name: `G${idx + 1}`,
+        score: d.score,
+        combo: d.maxCombo,
+        date: new Date(d.date).toLocaleDateString()
+      }));
+      setChartData(formatted);
+    } catch (err) {
+      console.error('Failed to load chart data:', err);
+    }
+  };
+
   const loadProfile = async () => {
     if (!userId) return;
     try {
       const res = await fetch(`${SERVER_URL}/api/profile/${userId}`);
       const data = await res.json();
       setProfileData(data);
+      await loadChartData(chartDuration, chartMode);
       setShowProfile(true);
     } catch (err) {
       console.error('Failed to load profile:', err);
@@ -618,7 +643,7 @@ export default function Game() {
       {/* Profile Modal */}
       {showProfile && profileData && !isPlaying && (
         <div className={styles.overlay}>
-          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '500px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '700px', maxHeight: '85vh', overflowY: 'auto' }}>
             <h2 className={styles.title} style={{fontSize: '2.5rem', marginBottom: '0.5rem'}}>{profileData.username}'s Profile</h2>
             <p style={{ color: '#9ca3af', marginBottom: '2rem', fontSize: '1.2rem' }}>Joined: {new Date(profileData.joinedDate).toLocaleDateString()}</p>
             
@@ -643,6 +668,68 @@ export default function Game() {
                 <div style={{ fontSize: '3rem', fontWeight: 'bold', color: '#c084fc' }}>{profileData.totalGamesPlayed > 0 ? Math.round((profileData.gamesSurvived / profileData.totalGamesPlayed) * 100) : 0}%</div>
                 <div style={{ fontSize: '1.1rem', color: '#9ca3af', marginTop: '0.5rem' }}>Overall Survival Rate</div>
               </div>
+            </div>
+
+            <div style={{ width: '100%', marginBottom: '2rem', background: 'rgba(0,0,0,0.3)', padding: '1.5rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#e2e8f0' }}>Score Progression</h3>
+              
+              <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                <select 
+                  className={styles.input} 
+                  style={{ flex: 1, background: 'rgba(0,0,0,0.8)' }}
+                  value={chartDuration}
+                  onChange={(e) => loadChartData(Number(e.target.value), chartMode)}
+                >
+                  <option value={30}>30s</option>
+                  <option value={60}>1m</option>
+                  <option value={180}>3m</option>
+                  <option value={300}>5m</option>
+                </select>
+
+                <select 
+                  className={styles.input} 
+                  style={{ flex: 2, background: 'rgba(0,0,0,0.8)' }}
+                  value={chartMode}
+                  onChange={(e) => loadChartData(chartDuration, e.target.value)}
+                >
+                  <option value="vanilla">Vanilla (Standard)</option>
+                  <option value="numbers">Numbers Only</option>
+                  <option value="punctuation">Punctuation Only</option>
+                  <option value="numbers_punctuation">Numbers + Punctuation</option>
+                  <option value="long_words">Long Words</option>
+                  <option value="numbers_long_words">Numbers + Long Words</option>
+                  <option value="punctuation_long_words">Punctuation + Long Words</option>
+                  <option value="numbers_punctuation_long_words">All Mods (Chaotic)</option>
+                </select>
+              </div>
+
+              {chartData.length > 0 ? (
+                <div style={{ width: '100%', height: 300 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} />
+                      <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid #3b82f6', borderRadius: '8px' }}
+                        itemStyle={{ color: '#60a5fa', fontWeight: 'bold' }}
+                        labelStyle={{ color: '#9ca3af', marginBottom: '5px' }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="score" 
+                        stroke="#60a5fa" 
+                        strokeWidth={3} 
+                        dot={{ r: 4, fill: '#60a5fa', strokeWidth: 0 }} 
+                        activeDot={{ r: 6, fill: '#3b82f6' }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', color: '#9ca3af', padding: '2rem 0' }}>
+                  No games played with these settings yet.
+                </div>
+              )}
             </div>
 
             <button className={styles.btn} onClick={() => setShowProfile(false)}>Close Profile</button>
