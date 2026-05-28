@@ -439,11 +439,19 @@ export default function Game() {
       {/* Main Menu */}
       {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && !showHowToPlay && !showProfile && (
         <div className={styles.overlay}>
-          <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <span style={{color: '#9ca3af', fontWeight: 'bold'}}>{username} {isGuest && '(Guest)'}</span>
-            <button onClick={loadProfile} style={{ background: 'transparent', color: '#c084fc', border: '1px solid #c084fc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Profile</button>
-            <button onClick={() => setShowHowToPlay(true)} style={{ background: 'transparent', color: '#60a5fa', border: '1px solid #60a5fa', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>How to Play</button>
-            <button onClick={handleLogout} style={{ background: 'transparent', color: '#f87171', border: '1px solid #f87171', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
+          <div className={styles.navBar}>
+            <div className={styles.navUserInfo}>
+              <span>👤</span> {username} {isGuest && <span style={{fontSize: '0.8rem', color: '#fcd34d'}}>(Guest)</span>}
+            </div>
+            <button onClick={loadProfile} className={styles.navBtn}>
+              <span>📊</span> Profile
+            </button>
+            <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
+              <span>📖</span> How to Play
+            </button>
+            <button onClick={handleLogout} className={`${styles.navBtn} ${styles.navBtnLogout}`}>
+              <span>🚪</span> Logout
+            </button>
           </div>
 
           <h1 className={styles.title} style={{ marginBottom: '1rem' }}>TypeClash</h1>
