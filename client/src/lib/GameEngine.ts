@@ -1,4 +1,6 @@
 import seedrandom from 'seedrandom';
+import { WORDS } from './words';
+import { ThemeConfig, THEMES } from './themes';
 import { Dictionary, Difficulty, GameModifiers } from './Dictionary';
 
 export interface GameState {
@@ -64,9 +66,15 @@ export class GameEngine {
   public onGarbageGenerated: (amount: number) => void = () => {};
   public onGameOverCallback: (score: number, maxCombo: number, survived: boolean, metrics: { wpm: number, accuracy: number, garbageSent: number }) => void = () => {};
 
-  constructor(canvas: HTMLCanvasElement) {
+  // Customization
+  private theme: ThemeConfig;
+  private fontFamily: string;
+
+  constructor(canvas: HTMLCanvasElement, theme?: ThemeConfig, fontFamily?: string) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
+    this.theme = theme || THEMES.dark;
+    this.fontFamily = fontFamily || 'Inter';
     this.random = seedrandom(); // Default unseeded
     
     // Bind event listeners
@@ -190,7 +198,7 @@ export class GameEngine {
     this.ctx.clearRect(0, 0, rect.width, rect.height);
     
     // Draw words
-    this.ctx.font = '24px Inter, sans-serif';
+    this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
 
@@ -207,14 +215,20 @@ export class GameEngine {
       
       const startX = word.x - totalWidth / 2;
 
-      // Typed characters (green/highlighted)
-      this.ctx.fillStyle = '#4ade80'; // Tailwind green-400 equivalent
+      // Typed characters
+      this.ctx.fillStyle = this.theme.wordTyped;
       this.ctx.fillText(typedText, startX + typedWidth / 2, word.y);
       
       // Remaining characters
-      this.ctx.fillStyle = isTargeted ? '#ffffff' : (word.isJunk ? '#f87171' : '#9ca3af');
+      this.ctx.fillStyle = isTargeted ? this.theme.wordRemaining : (word.isJunk ? this.theme.wordJunk : '#9ca3af');
       this.ctx.fillText(remainingText, startX + typedWidth + remainingWidth / 2, word.y);
     }
+  }
+
+  public setCustomization(theme: ThemeConfig, fontFamily: string) {
+    this.theme = theme;
+    this.fontFamily = fontFamily;
+    this.render();
   }
 
   private handleKeyDown(e: KeyboardEvent) {

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { GameEngine, GameState } from '@/lib/GameEngine';
+import { THEMES, FONTS } from '@/lib/themes';
 import styles from './Game.module.css';
 
 const SERVER_URL = (process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -60,6 +61,7 @@ export default function Game() {
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [customization, setCustomization] = useState({ theme: 'dark', fontFamily: 'Inter' });
 
   // Mobile Detection
   const [isMobile, setIsMobile] = useState(false);
@@ -97,6 +99,13 @@ export default function Game() {
           setUserId(savedId);
           setUsername(savedName);
           setIsGuest(savedIsGuest);
+          
+          const savedCustomization = localStorage.getItem('typeclash_customization');
+          if (savedCustomization) {
+            try {
+              setCustomization(JSON.parse(savedCustomization));
+            } catch (e) {}
+          }
         }
       } catch (e) {
         handleLogout();
@@ -114,7 +123,7 @@ export default function Game() {
   useEffect(() => {
     // Initialize Game Engine
     if (canvasRef.current && !engineRef.current) {
-      engineRef.current = new GameEngine(canvasRef.current);
+      engineRef.current = new GameEngine(canvasRef.current, THEMES[customization.theme], customization.fontFamily);
       engineRef.current.onStateChange = (state) => {
         setGameState(state);
       };
@@ -125,7 +134,15 @@ export default function Game() {
         }
       };
     }
+  }, []);
 
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setCustomization(THEMES[customization.theme] || THEMES.dark, customization.fontFamily);
+    }
+  }, [customization]);
+
+  useEffect(() => {
     // Initialize Socket Connection
     if (!socketRef.current) {
       socketRef.current = io(SERVER_URL);
@@ -233,6 +250,10 @@ export default function Game() {
         localStorage.setItem('typeclash_username', data.username);
         localStorage.setItem('typeclash_isguest', data.isGuest.toString());
         localStorage.setItem('typeclash_token', data.token);
+        if (data.customization) {
+          setCustomization(data.customization);
+          localStorage.setItem('typeclash_customization', JSON.stringify(data.customization));
+        }
       }
     } catch(e) {
       setAuthError('Failed to connect to server');
@@ -244,6 +265,7 @@ export default function Game() {
     localStorage.removeItem('typeclash_username');
     localStorage.removeItem('typeclash_isguest');
     localStorage.removeItem('typeclash_token');
+    localStorage.removeItem('typeclash_customization');
     setUserId(null);
     setUsername('');
     setPassword('');
@@ -281,6 +303,24 @@ export default function Game() {
       setShowProfile(true);
     } catch (err) {
       console.error('Failed to load profile:', err);
+    }
+  };
+
+  const updateCustomization = async (newTheme: string, newFont: string) => {
+    const nextCustomization = { theme: newTheme, fontFamily: newFont };
+    setCustomization(nextCustomization);
+    localStorage.setItem('typeclash_customization', JSON.stringify(nextCustomization));
+    
+    if (userId && !isGuest) {
+      try {
+        await fetch(`${SERVER_URL}/api/profile/customization`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, ...nextCustomization })
+        });
+      } catch (err) {
+        console.error('Failed to update customization on server');
+      }
     }
   };
 
@@ -358,7 +398,7 @@ export default function Game() {
   };
 
   return (
-    <div className={styles.container}>
+    <div className={styles.container} style={{ background: THEMES[customization.theme]?.background || THEMES.dark.background, transition: 'background 0.5s ease' }}>
       {/* Mobile Warning */}
       {isMobile && !dismissedMobileWarning && (
         <div className={styles.overlay} style={{ zIndex: 100 }}>
@@ -757,6 +797,40 @@ export default function Game() {
                   No games played with these settings yet.
                 </div>
               )}
+            </div>
+
+            {/* Customization Section */}
+            <div style={{ width: '100%', marginBottom: '2rem', background: 'rgba(0,0,0,0.3)', padding: '1.5rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#e2e8f0' }}>Customization</h3>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', color: '#9ca3af', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Theme</label>
+                  <select 
+                    className={styles.input} 
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.8)' }}
+                    value={customization.theme}
+                    onChange={(e) => updateCustomization(e.target.value, customization.fontFamily)}
+                  >
+                    {Object.values(THEMES).map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: '#9ca3af', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Font Family</label>
+                  <select 
+                    className={styles.input} 
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.8)', fontFamily: customization.fontFamily }}
+                    value={customization.fontFamily}
+                    onChange={(e) => updateCustomization(customization.theme, e.target.value)}
+                  >
+                    {FONTS.map(f => (
+                      <option key={f.id} value={f.id} style={{ fontFamily: f.id }}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
 
             <button className={styles.btn} onClick={() => setShowProfile(false)}>Close Profile</button>

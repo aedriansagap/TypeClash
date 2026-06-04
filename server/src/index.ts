@@ -43,7 +43,7 @@ app.post('/api/auth/guest', async (req, res) => {
       return res.status(403).json({ error: 'Username is registered. Please log in with a password.' });
     }
     const token = generateToken(user._id.toString(), user.username, true);
-    res.json({ id: user._id, username: user.username, token, isGuest: true });
+    res.json({ id: user._id, username: user.username, token, isGuest: true, customization: user.customization });
   } catch(e: any) {
     console.error('Auth error:', e);
     res.status(500).json({ error: `Database error: ${e.message}` });
@@ -76,7 +76,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     const token = generateToken(user._id.toString(), user.username, false);
-    res.json({ id: user._id, username: user.username, token, isGuest: false });
+    res.json({ id: user._id, username: user.username, token, isGuest: false, customization: user.customization });
   } catch (e: any) {
     console.error('Register error:', e);
     res.status(500).json({ error: `Database error: ${e.message}` });
@@ -103,7 +103,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const token = generateToken(user._id.toString(), user.username, false);
-    res.json({ id: user._id, username: user.username, token, isGuest: false });
+    res.json({ id: user._id, username: user.username, token, isGuest: false, customization: user.customization });
   } catch (e: any) {
     console.error('Login error:', e);
     res.status(500).json({ error: `Database error: ${e.message}` });
@@ -210,8 +210,28 @@ app.get('/api/profile/:userId', async (req, res) => {
     res.json({
       username: user.username,
       joinedDate: user.createdAt,
+      customization: user.customization,
       ...result
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update Profile Customization
+app.put('/api/profile/customization', async (req, res) => {
+  const { userId, fontFamily, theme } = req.body;
+  if (!userId) return res.status(400).json({ error: 'User ID is required' });
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    if (fontFamily) user.customization.fontFamily = fontFamily;
+    if (theme) user.customization.theme = theme;
+    
+    await user.save();
+    res.json({ message: 'Customization saved successfully', customization: user.customization });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

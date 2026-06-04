@@ -5,13 +5,21 @@ export interface IUser extends Document {
   passwordHash?: string;
   isGuest: boolean;
   createdAt: Date;
+  customization: {
+    fontFamily: string;
+    theme: string;
+  };
 }
 
 const UserSchema: Schema = new Schema({
   username: { type: String, required: true, unique: true },
   passwordHash: { type: String },
   isGuest: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  customization: {
+    fontFamily: { type: String, default: 'Inter' },
+    theme: { type: String, default: 'dark' }
+  }
 });
 
 export const User = mongoose.model<IUser>('User', UserSchema);
