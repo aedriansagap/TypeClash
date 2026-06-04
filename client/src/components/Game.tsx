@@ -59,6 +59,7 @@ export default function Game() {
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Mobile Detection
   const [isMobile, setIsMobile] = useState(false);
@@ -478,7 +479,7 @@ export default function Game() {
             <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
               <span>📖</span> How to Play
             </button>
-            <button onClick={handleLogout} className={styles.navBtn}>
+            <button onClick={() => setShowLogoutConfirm(true)} className={styles.navBtn}>
               <span>🚪</span> Logout
             </button>
           </div>
@@ -759,6 +760,35 @@ export default function Game() {
             </div>
 
             <button className={styles.btn} onClick={() => setShowProfile(false)}>Close Profile</button>
+          </div>
+        </div>
+      )}
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className={styles.overlay} style={{ zIndex: 100 }}>
+          <div className={styles.multiplayerBox} style={{ width: '90%', maxWidth: '400px', textAlign: 'center', padding: '2rem' }}>
+            <h2 className={styles.title} style={{fontSize: '2rem', marginBottom: '1rem'}}>Confirm Logout</h2>
+            <p style={{ color: '#e2e8f0', marginBottom: '2rem', fontSize: '1.2rem' }}>Are you sure you want to log out?</p>
+            <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+              <button 
+                className={styles.btnSmall} 
+                style={{ flex: 1, padding: '12px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#fca5a5' }} 
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  handleLogout();
+                }}
+              >
+                Yes, Logout
+              </button>
+              <button 
+                className={styles.btnSmall} 
+                style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.1)' }} 
+                onClick={() => setShowLogoutConfirm(false)}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
