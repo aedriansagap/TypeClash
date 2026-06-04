@@ -500,17 +500,28 @@ export default function Game() {
 
               <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.5rem' }}>
                 <h3 className={styles.subtitle} style={{ fontSize: '1.5rem' }}>Special Mods</h3>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={mods.includeNumbers} onChange={(e) => setMods({...mods, includeNumbers: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'center', marginTop: '1rem' }}>
+                  <label className={`${styles.toggleLabel} ${mods.includeNumbers ? styles.toggleLabelActive : ''}`}>
+                    <input type="checkbox" checked={mods.includeNumbers} onChange={(e) => setMods({...mods, includeNumbers: e.target.checked})} style={{ display: 'none' }} />
+                    <div className={`${styles.toggleTrack} ${mods.includeNumbers ? styles.toggleTrackActive : ''}`}>
+                      <div className={`${styles.toggleThumb} ${mods.includeNumbers ? styles.toggleThumbActive : ''}`}></div>
+                    </div>
                     Numbers
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={mods.includePunctuation} onChange={(e) => setMods({...mods, includePunctuation: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                  
+                  <label className={`${styles.toggleLabel} ${mods.includePunctuation ? styles.toggleLabelActive : ''}`}>
+                    <input type="checkbox" checked={mods.includePunctuation} onChange={(e) => setMods({...mods, includePunctuation: e.target.checked})} style={{ display: 'none' }} />
+                    <div className={`${styles.toggleTrack} ${mods.includePunctuation ? styles.toggleTrackActive : ''}`}>
+                      <div className={`${styles.toggleThumb} ${mods.includePunctuation ? styles.toggleThumbActive : ''}`}></div>
+                    </div>
                     Punctuation
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={mods.longestWords} onChange={(e) => setMods({...mods, longestWords: e.target.checked})} style={{ width: '20px', height: '20px' }} />
+                  
+                  <label className={`${styles.toggleLabel} ${mods.longestWords ? styles.toggleLabelActive : ''}`}>
+                    <input type="checkbox" checked={mods.longestWords} onChange={(e) => setMods({...mods, longestWords: e.target.checked})} style={{ display: 'none' }} />
+                    <div className={`${styles.toggleTrack} ${mods.longestWords ? styles.toggleTrackActive : ''}`}>
+                      <div className={`${styles.toggleThumb} ${mods.longestWords ? styles.toggleThumbActive : ''}`}></div>
+                    </div>
                     Long Words
                   </label>
                 </div>
