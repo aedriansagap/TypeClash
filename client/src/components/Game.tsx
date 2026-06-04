@@ -57,6 +57,7 @@ export default function Game() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboardTab, setLeaderboardTab] = useState<'GLOBAL' | 'PERSONAL'>('GLOBAL');
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
 
   // Mobile Detection
@@ -286,6 +287,7 @@ export default function Game() {
     setLeaderboardTab(tab);
     setLeaderboardMode(mode);
     setMatchDuration(duration);
+    setIsLeaderboardLoading(true);
     try {
       const url = tab === 'GLOBAL' 
         ? `${SERVER_URL}/api/leaderboard/${duration}/${mode}`
@@ -297,6 +299,8 @@ export default function Game() {
       setShowLeaderboard(true);
     } catch (e) {
       console.error(e);
+    } finally {
+      setIsLeaderboardLoading(false);
     }
   };
 
@@ -474,7 +478,7 @@ export default function Game() {
             <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
               <span>📖</span> How to Play
             </button>
-            <button onClick={handleLogout} className={`${styles.navBtn} ${styles.navBtnLogout}`}>
+            <button onClick={handleLogout} className={styles.navBtn}>
               <span>🚪</span> Logout
             </button>
           </div>
@@ -589,7 +593,7 @@ export default function Game() {
               <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 300 ? '#8b5cf6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard(leaderboardTab, leaderboardMode, 300)}>5m</button>
             </div>
             
-            <div style={{ overflowY: 'auto', width: '100%', paddingRight: '10px', marginBottom: '1rem' }}>
+            <div className={styles.noScrollbar} style={{ overflowY: 'auto', width: '100%', paddingRight: '10px', marginBottom: '1rem' }}>
               <table style={{width: '100%', textAlign: 'left', borderCollapse: 'collapse'}}>
                 <thead>
                   <tr style={{borderBottom: '1px solid rgba(255,255,255,0.2)'}}>
@@ -600,15 +604,26 @@ export default function Game() {
                   </tr>
                 </thead>
                 <tbody>
-                  {leaderboardData.length === 0 && <tr><td colSpan={leaderboardTab === 'GLOBAL' ? 4 : 3} style={{textAlign: 'center', padding: '20px'}}>No scores yet!</td></tr>}
-                  {leaderboardData.map((row, idx) => (
-                    <tr key={idx} style={{background: idx % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'transparent'}}>
-                      <td style={{padding: '10px'}}>{idx + 1}</td>
-                      {leaderboardTab === 'GLOBAL' && <td style={{padding: '10px'}}>{row.username}</td>}
-                      <td style={{padding: '10px', fontWeight: 'bold', color: '#4ade80'}}>{row.score}</td>
-                      <td style={{padding: '10px'}}>{row.maxCombo}</td>
+                  {isLeaderboardLoading ? (
+                    <tr>
+                      <td colSpan={leaderboardTab === 'GLOBAL' ? 4 : 3}>
+                        <div className={styles.spinner}></div>
+                      </td>
                     </tr>
-                  ))}
+                  ) : leaderboardData.length === 0 ? (
+                    <tr>
+                      <td colSpan={leaderboardTab === 'GLOBAL' ? 4 : 3} style={{textAlign: 'center', padding: '20px'}}>No scores yet!</td>
+                    </tr>
+                  ) : (
+                    leaderboardData.map((row, idx) => (
+                      <tr key={idx} style={{background: idx % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'transparent'}}>
+                        <td style={{padding: '10px'}}>{idx + 1}</td>
+                        {leaderboardTab === 'GLOBAL' && <td style={{padding: '10px'}}>{row.username}</td>}
+                        <td style={{padding: '10px', fontWeight: 'bold', color: '#4ade80'}}>{row.score}</td>
+                        <td style={{padding: '10px'}}>{row.maxCombo}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
