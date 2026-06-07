@@ -1,5 +1,4 @@
 import seedrandom from 'seedrandom';
-import { WORDS } from './words';
 import { ThemeConfig, THEMES } from './themes';
 import { Dictionary, Difficulty, GameModifiers } from './Dictionary';
 
