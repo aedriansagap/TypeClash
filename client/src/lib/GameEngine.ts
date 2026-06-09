@@ -1,7 +1,7 @@
 import seedrandom from 'seedrandom';
 import { ThemeConfig, THEMES } from './themes';
 import { Dictionary, Difficulty, GameModifiers } from './Dictionary';
-
+import { AdaptiveDifficulty } from './AdaptiveDifficulty';
 export interface GameState {
   lives: number;
   combo: number;
@@ -59,6 +59,7 @@ export class GameEngine {
   private currentSpawnInterval: number = 2000;
   private baseSpeed: number = 0.08; // Increased base speed
   private modifiers?: GameModifiers;
+  private adaptiveDifficulty: AdaptiveDifficulty;
 
   // Callbacks
   public onStateChange: (state: GameState & { maxCombo: number }) => void = () => {};
@@ -75,6 +76,7 @@ export class GameEngine {
     this.theme = theme || THEMES.dark;
     this.fontFamily = fontFamily || 'Inter';
     this.random = seedrandom(); // Default unseeded
+    this.adaptiveDifficulty = new AdaptiveDifficulty();
     
     // Bind event listeners
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -286,14 +288,19 @@ export class GameEngine {
     }
   }
 
-  private spawnWord(speed: number, difficultyMultiplier: number) {
+  private async spawnWord(speed: number, difficultyMultiplier: number) {
     const rect = this.canvas.getBoundingClientRect();
     
-    // Determine difficulty based on time/multiplier
-    let diff = Difficulty.EASY;
-    if (difficultyMultiplier > 1.5) diff = Difficulty.HARD;
+    // Determine difficulty based on ML model
+    const minutes = this.timeElapsed / 60000;
+    const wpm = minutes > 0 ? (this.state.correctKeystrokes / 5) / minutes : 0;
+    const accuracy = this.state.totalKeystrokes > 0 ? (this.state.correctKeystrokes / this.state.totalKeystrokes) * 100 : 100;
     
-    const text = Dictionary.getWord(this.random, diff, this.modifiers);
+    const mlPrediction = await this.adaptiveDifficulty.predictDifficulty(wpm, accuracy, this.state.combo);
+    const diff = mlPrediction.difficulty;
+    const modelMods = mlPrediction.mods;
+    
+    const text = Dictionary.getWord(this.random, diff, this.modifiers || modelMods);
     
     // Ensure word spawns fully within horizontal bounds
     this.ctx.font = '24px Inter, sans-serif';
