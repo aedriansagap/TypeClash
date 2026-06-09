@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { User, BarChart2, BookOpen, LogOut, Target, Clock, Key, Flame, Heart, Trophy, Skull, Activity, Shield, Check, X, Swords } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import { THEMES, FONTS } from '@/lib/themes';
 import styles from './Game.module.css';
@@ -413,41 +415,61 @@ export default function Game() {
       )}
 
       {/* HUD overlay */}
+      <AnimatePresence>
       {(isPlaying || gameState.isGameOver) && (
-        <div className={styles.hud}>
+        <motion.div 
+          initial={{ y: -100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -100, opacity: 0 }}
+          className={styles.hud}
+        >
           <div className={styles.statPanel}>
             <div className={styles.statItem}>
-              <span style={{ fontSize: '1.2rem' }}>🎯</span>
-              <span className={styles.statLabel}>Score</span>
-              <span className={styles.statValue}>{gameState.score}</span>
+              <div className={styles.statHeader}><Target size={16} /> Score</div>
+              <motion.div key={gameState.score} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={styles.statValue}>
+                {gameState.score}
+              </motion.div>
             </div>
             <div className={styles.statItem}>
-              <span style={{ fontSize: '1.2rem' }}>🕒</span>
-              <span className={styles.statLabel}>Time</span>
-              <span className={styles.statValue} style={{ color: gameState.timeLeft <= 10 ? '#ef4444' : '#f8fafc' }}>{gameState.timeLeft}s</span>
+              <div className={styles.statHeader}><Clock size={16} /> Time</div>
+              <motion.div 
+                animate={gameState.timeLeft <= 10 ? { scale: [1, 1.1, 1], color: ['#f8fafc', '#ef4444', '#f8fafc'] } : {}}
+                transition={{ repeat: gameState.timeLeft <= 10 ? Infinity : 0, duration: 0.5 }}
+                className={styles.statValue} style={{ color: gameState.timeLeft <= 10 ? '#ef4444' : '#f8fafc' }}>
+                {gameState.timeLeft}s
+              </motion.div>
             </div>
             {currentRoom && (
               <div className={styles.statItem}>
-                <span style={{ fontSize: '1.2rem' }}>🗝️</span>
-                <span className={styles.statLabel}>Room</span>
-                <span className={styles.statValue}>{currentRoom}</span>
+                <div className={styles.statHeader}><Key size={16} /> Room</div>
+                <div className={styles.statValue}>{currentRoom}</div>
               </div>
             )}
           </div>
           
           <div className={styles.statPanel}>
             <div className={styles.statItem} style={{ color: gameState.combo > 5 ? '#fcd34d' : 'inherit' }}>
-              <span style={{ fontSize: '1.2rem' }}>🔥</span>
-              <span className={styles.statLabel} style={{ color: gameState.combo > 5 ? '#fde68a' : '#94a3b8' }}>Combo</span>
-              <span className={styles.statValue} style={{ color: gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>x{gameState.combo}</span>
+              <div className={styles.statHeader} style={{ color: gameState.combo > 5 ? '#fde68a' : '#94a3b8' }}><Flame size={16} /> Combo</div>
+              <motion.div key={gameState.combo} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={styles.statValue} style={{ color: gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>
+                x{gameState.combo}
+              </motion.div>
             </div>
             <div className={styles.statItem}>
-              <span className={styles.statLabel}>Lives</span>
-              <span className={styles.statValue} style={{ letterSpacing: '2px' }}>{'❤️'.repeat(Math.max(0, gameState.lives))}</span>
+              <div className={styles.statHeader}><Heart size={16} /> Lives</div>
+              <div className={styles.statValue} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <AnimatePresence>
+                  {Array.from({ length: Math.max(0, gameState.lives) }).map((_, i) => (
+                    <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+                      <Heart size={24} fill="#ef4444" color="#ef4444" />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
       
       {/* Game Canvas */}
       <canvas ref={canvasRef} className={styles.canvas} />
@@ -510,18 +532,21 @@ export default function Game() {
       {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && !showHowToPlay && !showProfile && (
         <div className={styles.overlay}>
           <div className={styles.navBar}>
-            <div className={styles.navUserInfo}>
-              <span>👤</span> {username} {isGuest && <span style={{fontSize: '0.8rem', color: '#fcd34d'}}>(Guest)</span>}
+            <div className={styles.navBrand}>TypeClash</div>
+            <div className={styles.navControls}>
+              <div className={styles.navUserInfo}>
+                <User size={18} /> {username} {isGuest && <span style={{fontSize: '0.8rem', color: '#fcd34d'}}>(Guest)</span>}
+              </div>
+              <button onClick={loadProfile} className={styles.navBtn}>
+                <BarChart2 size={16} /> Profile
+              </button>
+              <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
+                <BookOpen size={16} /> How to Play
+              </button>
+              <button onClick={() => setShowLogoutConfirm(true)} className={styles.navBtn}>
+                <LogOut size={16} /> Logout
+              </button>
             </div>
-            <button onClick={loadProfile} className={styles.navBtn}>
-              <span>📊</span> Profile
-            </button>
-            <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
-              <span>📖</span> How to Play
-            </button>
-            <button onClick={() => setShowLogoutConfirm(true)} className={styles.navBtn}>
-              <span>🚪</span> Logout
-            </button>
           </div>
 
           <h1 className={styles.title} style={{ marginBottom: '1rem' }}>TypeClash</h1>
@@ -615,8 +640,8 @@ export default function Game() {
             <h2 className={styles.title} style={{fontSize: '3rem', marginBottom: '1rem'}}>Leaderboards</h2>
             
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', width: '100%' }}>
-              <button className={styles.btnSmall} style={{ flex: 1, background: leaderboardTab === 'GLOBAL' ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Global Top</button>
-              <button className={styles.btnSmall} style={{ flex: 1, background: leaderboardTab === 'PERSONAL' ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => loadLeaderboard('PERSONAL', leaderboardMode, matchDuration)}>My History</button>
+              <button className={`${styles.btnSmall} ${leaderboardTab === 'GLOBAL' ? styles.btnSmallActive : ''}`} style={{ flex: 1 }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Global Top</button>
+              <button className={`${styles.btnSmall} ${leaderboardTab === 'PERSONAL' ? styles.btnSmallActive : ''}`} style={{ flex: 1 }} onClick={() => loadLeaderboard('PERSONAL', leaderboardMode, matchDuration)}>My History</button>
             </div>
 
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', width: '100%', alignItems: 'center' }}>
@@ -646,7 +671,7 @@ export default function Game() {
             </div>
             
             <div className={styles.noScrollbar} style={{ overflowY: 'auto', width: '100%', paddingRight: '10px', marginBottom: '1rem' }}>
-              <table style={{width: '100%', textAlign: 'left', borderCollapse: 'collapse'}}>
+              <table className={styles.table}>
                 <thead>
                   <tr style={{borderBottom: '1px solid rgba(255,255,255,0.2)'}}>
                     <th style={{padding: '10px'}}>Rank</th>
@@ -692,13 +717,19 @@ export default function Game() {
             <h2 className={styles.title} style={{fontSize: '3rem', marginBottom: '1rem'}}>How to Play</h2>
             
             <div style={{ textAlign: 'left', lineHeight: '1.6', fontSize: '1.1rem', color: '#e2e8f0', marginBottom: '2rem' }}>
-              <h3 style={{ color: '#4ade80', marginBottom: '0.5rem' }}>⌨️ The Basics</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
+                <Activity color="#4ade80" /> <h3 style={{ color: '#4ade80', margin: 0 }}>The Basics</h3>
+              </div>
               <p style={{ marginBottom: '1.5rem' }}>Words will fall from the top of the screen. Type them correctly before they hit the bottom! You have exactly <strong>3 lives</strong>.</p>
               
-              <h3 style={{ color: '#fcd34d', marginBottom: '0.5rem' }}>🔥 Combos</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
+                <Flame color="#fcd34d" /> <h3 style={{ color: '#fcd34d', margin: 0 }}>Combos</h3>
+              </div>
               <p style={{ marginBottom: '1.5rem' }}>Typing words flawlessly builds your combo multiplier. Making a mistake breaks the combo!</p>
               
-              <h3 style={{ color: '#f87171', marginBottom: '0.5rem' }}>⚔️ Multiplayer Garbage</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
+                <Swords color="#f87171" /> <h3 style={{ color: '#f87171', margin: 0 }}>Multiplayer Garbage</h3>
+              </div>
               <p style={{ marginBottom: '1.5rem' }}>In multiplayer matches, every time you reach a <strong>Combo of 5</strong>, you instantly send a wave of fast "Garbage Words" to your opponent's screen. Overwhelm them to win!</p>
             </div>
 
@@ -892,11 +923,11 @@ export default function Game() {
       {gameState.isGameOver && !waitingForResult && (
         <div className={styles.overlay}>
           <div className={styles.multiplayerBox} style={{ minWidth: '400px' }}>
-            <h2 className={styles.title} style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>
-              {isSinglePlayer ? "Match Complete!" : (
-                matchResult === 'WIN' ? "🏆 You Won!" :
-                matchResult === 'LOSE' ? "💀 You Lost!" :
-                matchResult === 'DRAW' ? "🤝 It's a Draw!" : "Game Over"
+            <h2 className={styles.title} style={{ fontSize: '3rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
+              {isSinglePlayer ? <><Activity size={40} /> Match Complete!</> : (
+                matchResult === 'WIN' ? <><Trophy size={40} /> You Won!</> :
+                matchResult === 'LOSE' ? <><Skull size={40} /> You Lost!</> :
+                matchResult === 'DRAW' ? <><Shield size={40} /> It's a Draw!</> : "Game Over"
               )}
             </h2>
             
