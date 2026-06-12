@@ -24,6 +24,7 @@ export default function Game() {
   const [userId, setUserId] = useState<string | null>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
   
   // Game State
   const [gameState, setGameState] = useState<GameState & { maxCombo: number }>({
@@ -263,6 +264,7 @@ export default function Game() {
   const handleAuth = async (endpoint: string) => {
     if (!username.trim()) return;
     setAuthError('');
+    setIsAuthLoading(true);
     try {
       const res = await fetch(`${SERVER_URL}${endpoint}`, {
         method: 'POST',
@@ -285,6 +287,8 @@ export default function Game() {
       }
     } catch(e) {
       setAuthError('Failed to connect to server');
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
@@ -520,10 +524,13 @@ export default function Game() {
                 <h3 className={styles.subtitle}>Guest Player</h3>
                 <input 
                   type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Guest Username"
-                  value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAuth('/api/auth/guest')}
+                  value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/guest')}
+                  disabled={isAuthLoading}
                 />
-                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem'}} onClick={() => handleAuth('/api/auth/guest')}>Start</button>
-                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} onClick={() => setAuthMode('SELECT')}>Back</button>
+                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem', opacity: isAuthLoading ? 0.7 : 1}} disabled={isAuthLoading} onClick={() => handleAuth('/api/auth/guest')}>
+                  {isAuthLoading ? <div className={styles.loader} style={{ width: '20px', height: '20px', border: '3px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : 'Start'}
+                </button>
+                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} disabled={isAuthLoading} onClick={() => setAuthMode('SELECT')}>Back</button>
                 {authError && <p style={{color: '#ef4444', marginTop: '1rem'}}>{authError}</p>}
               </>
             )}
@@ -531,10 +538,12 @@ export default function Game() {
             {authMode === 'LOGIN' && (
               <>
                 <h3 className={styles.subtitle}>Log In</h3>
-                <input type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-                <input type="password" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAuth('/api/auth/login')} />
-                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem'}} onClick={() => handleAuth('/api/auth/login')}>Log In</button>
-                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} onClick={() => setAuthMode('SELECT')}>Back</button>
+                <input type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isAuthLoading} />
+                <input type="password" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/login')} disabled={isAuthLoading} />
+                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem', opacity: isAuthLoading ? 0.7 : 1}} disabled={isAuthLoading} onClick={() => handleAuth('/api/auth/login')}>
+                  {isAuthLoading ? <div className={styles.loader} style={{ width: '20px', height: '20px', border: '3px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : 'Log In'}
+                </button>
+                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} disabled={isAuthLoading} onClick={() => setAuthMode('SELECT')}>Back</button>
                 {authError && <p style={{color: '#ef4444', marginTop: '1rem'}}>{authError}</p>}
               </>
             )}
@@ -542,10 +551,12 @@ export default function Game() {
             {authMode === 'REGISTER' && (
               <>
                 <h3 className={styles.subtitle}>Create Account</h3>
-                <input type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-                <input type="password" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAuth('/api/auth/register')} />
-                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem'}} onClick={() => handleAuth('/api/auth/register')}>Register</button>
-                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} onClick={() => setAuthMode('SELECT')}>Back</button>
+                <input type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isAuthLoading} />
+                <input type="password" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/register')} disabled={isAuthLoading} />
+                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem', opacity: isAuthLoading ? 0.7 : 1}} disabled={isAuthLoading} onClick={() => handleAuth('/api/auth/register')}>
+                  {isAuthLoading ? <div className={styles.loader} style={{ width: '20px', height: '20px', border: '3px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : 'Register'}
+                </button>
+                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} disabled={isAuthLoading} onClick={() => setAuthMode('SELECT')}>Back</button>
                 {authError && <p style={{color: '#ef4444', marginTop: '1rem'}}>{authError}</p>}
               </>
             )}
