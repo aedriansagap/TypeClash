@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { User, BarChart2, BookOpen, LogOut, Target, Clock, Key, Flame, Heart, Trophy, Skull, Activity, Shield, Check, X, Swords } from 'lucide-react';
+import { User, BarChart2, BookOpen, LogOut, Target, Clock, Key, Flame, Heart, Trophy, Skull, Activity, Shield, Check, X, Swords, Volume2, VolumeX } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import { THEMES, FONTS } from '@/lib/themes';
@@ -65,7 +65,7 @@ export default function Game() {
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [customization, setCustomization] = useState({ theme: 'dark', fontFamily: 'Inter' });
-
+  const [isMuted, setIsMuted] = useState(false);
   // Mobile Detection
   const [isMobile, setIsMobile] = useState(false);
   const [dismissedMobileWarning, setDismissedMobileWarning] = useState(false);
@@ -150,6 +150,12 @@ export default function Game() {
       engineRef.current.setCustomization(THEMES[customization.theme] || THEMES.dark, customization.fontFamily);
     }
   }, [customization]);
+
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.sound.isMuted = isMuted;
+    }
+  }, [isMuted]);
 
   useEffect(() => {
     // Initialize Socket Connection
@@ -420,6 +426,8 @@ export default function Game() {
   };
 
   const createRoom = () => {
+    engineRef.current?.sound.init();
+    engineRef.current?.sound.resume();
     const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     setCurrentRoom(randomId);
     setWaitingForOpponent(true);
@@ -428,6 +436,8 @@ export default function Game() {
 
   const joinRoom = () => {
     if (roomCode.trim() !== '') {
+    engineRef.current?.sound.init();
+    engineRef.current?.sound.resume();
       setCurrentRoom(roomCode.toUpperCase());
       setWaitingForOpponent(true);
       socketRef.current?.emit('join_room', { roomId: roomCode.toUpperCase(), userId, username });
@@ -435,6 +445,8 @@ export default function Game() {
   };
 
   const playSinglePlayer = () => {
+    engineRef.current?.sound.init();
+    engineRef.current?.sound.resume();
     setIsSinglePlayer(true);
     setIsPlaying(true);
     setPlayerMetrics(null);
@@ -443,6 +455,8 @@ export default function Game() {
   };
 
   const findMatch = () => {
+    engineRef.current?.sound.init();
+    engineRef.current?.sound.resume();
     socketRef.current?.emit('find_match', { duration: matchDuration, userId, username, mods });
   };
 
@@ -651,6 +665,9 @@ export default function Game() {
               </button>
               <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
                 <BookOpen size={16} /> How to Play
+              </button>
+              <button onClick={() => setIsMuted(!isMuted)} className={styles.navBtn}>
+                {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />} Sound
               </button>
               <button onClick={() => setShowLogoutConfirm(true)} className={styles.navBtn}>
                 <LogOut size={16} /> Logout

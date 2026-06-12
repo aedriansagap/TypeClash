@@ -2,6 +2,7 @@ import seedrandom from 'seedrandom';
 import { ThemeConfig, THEMES } from './themes';
 import { Dictionary, Difficulty, GameModifiers } from './Dictionary';
 import { AdaptiveDifficulty } from './AdaptiveDifficulty';
+import { SoundEngine } from './SoundEngine';
 export interface GameState {
   lives: number;
   combo: number;
@@ -60,6 +61,7 @@ export class GameEngine {
   private baseSpeed: number = 0.08; // Increased base speed
   private modifiers?: GameModifiers;
   private adaptiveDifficulty: AdaptiveDifficulty;
+  public sound: SoundEngine;
 
   // Callbacks
   public onStateChange: (state: GameState & { maxCombo: number }) => void = () => {};
@@ -78,6 +80,7 @@ export class GameEngine {
     this.fontFamily = fontFamily || 'Inter';
     this.random = seedrandom(); // Default unseeded
     this.adaptiveDifficulty = new AdaptiveDifficulty();
+    this.sound = new SoundEngine();
     
     // Bind event listeners
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -106,10 +109,12 @@ export class GameEngine {
     this.spawnTimer = 0;
     this.lastTime = performance.now();
     this.notifyState();
+    this.sound.startBGM();
     this.loop(this.lastTime);
   }
 
   public stop() {
+    this.sound.stopBGM();
     cancelAnimationFrame(this.animationFrameId);
     window.removeEventListener('resize', this.resize);
     window.removeEventListener('keydown', this.handleKeyDown);
@@ -164,6 +169,12 @@ export class GameEngine {
       const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
       const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
       
+      this.sound.stopBGM();
+      if (this.state.survived) {
+        this.sound.playWin();
+      } else {
+        this.sound.playLose();
+      }
       this.onGameOverCallback(this.state.score, this.state.maxCombo, this.state.survived, {
         wpm, accuracy, garbageSent: this.state.garbageSent
       });
@@ -178,6 +189,7 @@ export class GameEngine {
     
     // Scale speed and spawn intervals based on progressScore
     const difficultyMultiplier = 1 + progressScore; 
+    this.sound.updateBGM(progressScore);
     this.currentSpawnInterval = Math.max(400, this.baseSpawnInterval / difficultyMultiplier);
     const currentSpeed = this.baseSpeed * difficultyMultiplier;
 
@@ -201,6 +213,7 @@ export class GameEngine {
         if (this.targetedWordId === word.id) {
           this.targetedWordId = null;
         }
+        this.sound.playLifeLost();
         this.loseLife();
       }
     }
@@ -270,6 +283,7 @@ export class GameEngine {
         // Correct hit
         target.typed += key;
         this.state.correctKeystrokes += 1;
+        this.sound.playKeystroke(true, this.state.combo);
         
         // Word completed
         if (target.typed === target.text) {
@@ -277,6 +291,7 @@ export class GameEngine {
         }
       } else {
         // Wrong hit - break combo
+        this.sound.playKeystroke(false, 0);
         this.breakCombo();
       }
     } else {
@@ -290,12 +305,14 @@ export class GameEngine {
         this.targetedWordId = target.id;
         target.typed += key;
         this.state.correctKeystrokes += 1;
+        this.sound.playKeystroke(true, this.state.combo);
         
         if (target.typed === target.text) {
           this.destroyWord(target.id);
         }
       } else {
         // Typed a key that doesn't match any word
+        this.sound.playKeystroke(false, 0);
         this.breakCombo();
       }
     }
@@ -340,6 +357,7 @@ export class GameEngine {
   private destroyWord(id: string) {
     this.words = this.words.filter(w => w.id !== id);
     this.targetedWordId = null;
+    this.sound.playWordComplete();
     
     // Combo & Score logic
     this.state.combo += 1;
@@ -353,6 +371,7 @@ export class GameEngine {
       this.state.score += 50; // Bonus score
       this.state.garbageSent += 1;
       // Send garbage (emit to network)
+      this.sound.playGarbageSent();
       this.onGarbageGenerated(1); 
     }
     
@@ -369,6 +388,8 @@ export class GameEngine {
     this.state.combo = 0;
     
     if (this.state.lives <= 0) {
+      this.sound.stopBGM();
+      this.sound.playLose();
       this.state.isGameOver = true;
       this.state.survived = false;
       this.notifyState();
