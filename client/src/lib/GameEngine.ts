@@ -170,8 +170,14 @@ export class GameEngine {
       return;
     }
 
-    // Scale difficulty over time (max 2.5x speed at the end of the minute)
-    const difficultyMultiplier = 1 + (this.timeElapsed / this.matchDuration) * 1.5;
+    // Calculate progressive difficulty score based on time, combo, and score
+    const timeRatio = this.timeElapsed / this.matchDuration;
+    let progressScore = timeRatio * 1.5; // Max 1.5 from time
+    progressScore += Math.min(1.0, this.state.combo * 0.02); // Max 1.0 from combo
+    progressScore += Math.min(1.0, this.state.score * 0.001); // Max 1.0 from score
+    
+    // Scale speed and spawn intervals based on progressScore
+    const difficultyMultiplier = 1 + progressScore; 
     this.currentSpawnInterval = Math.max(400, this.baseSpawnInterval / difficultyMultiplier);
     const currentSpeed = this.baseSpeed * difficultyMultiplier;
 
@@ -179,7 +185,7 @@ export class GameEngine {
     this.spawnTimer += deltaTime;
     if (this.spawnTimer >= this.currentSpawnInterval) {
       this.spawnTimer = 0;
-      this.spawnWord(currentSpeed, difficultyMultiplier);
+      this.spawnWord(currentSpeed, progressScore);
     }
 
     // Move words and check collisions
@@ -295,7 +301,7 @@ export class GameEngine {
     }
   }
 
-  private async spawnWord(speed: number, difficultyMultiplier: number) {
+  private async spawnWord(speed: number, progressScore: number) {
     const rect = this.canvas.getBoundingClientRect();
     
     // Determine difficulty based on ML model
@@ -307,7 +313,7 @@ export class GameEngine {
     const diff = mlPrediction.difficulty;
     const modelMods = mlPrediction.mods;
     
-    const text = Dictionary.getWord(this.random, diff, this.modifiers || modelMods);
+    const text = Dictionary.getWord(this.random, diff, this.modifiers || modelMods, progressScore);
     
     // Ensure word spawns fully within horizontal bounds
     this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
