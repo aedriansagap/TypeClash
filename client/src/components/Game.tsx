@@ -426,7 +426,7 @@ export default function Game() {
   };
 
   return (
-    <div className={styles.container} style={{ background: THEMES[customization.theme]?.background || THEMES.dark.background, transition: 'background 0.5s ease' }}>
+    <div className={styles.container} style={{ background: THEMES[customization.theme]?.background || THEMES.dark.background, transition: 'background 0.5s ease', fontFamily: customization.fontFamily }}>
       {/* Mobile Warning */}
       {isMobile && !dismissedMobileWarning && (
         <div className={styles.overlay} style={{ zIndex: 100 }}>

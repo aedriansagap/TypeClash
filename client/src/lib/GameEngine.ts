@@ -303,7 +303,7 @@ export class GameEngine {
     const text = Dictionary.getWord(this.random, diff, this.modifiers || modelMods);
     
     // Ensure word spawns fully within horizontal bounds
-    this.ctx.font = '24px Inter, sans-serif';
+    this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
     const textWidth = this.ctx.measureText(text).width;
     const padding = 20;
     const minX = textWidth / 2 + padding;
@@ -382,7 +382,7 @@ export class GameEngine {
     for(let i=0; i<amount; i++) {
       const rect = this.canvas.getBoundingClientRect();
       const text = Dictionary.getJunkWord(this.random);
-      this.ctx.font = '24px Inter, sans-serif';
+      this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
       const textWidth = this.ctx.measureText(text).width;
       const minX = textWidth / 2 + 20;
       const maxX = rect.width - (textWidth / 2) - 20;
