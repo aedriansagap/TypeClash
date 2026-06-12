@@ -65,6 +65,7 @@ export class GameEngine {
   public onStateChange: (state: GameState & { maxCombo: number }) => void = () => {};
   public onGarbageGenerated: (amount: number) => void = () => {};
   public onGameOverCallback: (score: number, maxCombo: number, survived: boolean, metrics: { wpm: number, accuracy: number, garbageSent: number }) => void = () => {};
+  public onMetricsUpdate: (metrics: { wpm: number, accuracy: number, garbageSent: number, lives: number, score: number }) => void = () => {};
 
   // Customization
   private theme: ThemeConfig;
@@ -146,6 +147,12 @@ export class GameEngine {
     if (newTimeLeft !== this.state.timeLeft) {
       this.state.timeLeft = newTimeLeft;
       this.notifyState();
+      
+      // Emit metrics every second
+      const minutes = this.timeElapsed / 60000;
+      const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
+      const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
+      this.onMetricsUpdate({ wpm, accuracy, garbageSent: this.state.garbageSent, lives: this.state.lives, score: this.state.score });
     }
 
     if (this.timeElapsed >= this.matchDuration && !this.state.isGameOver) {

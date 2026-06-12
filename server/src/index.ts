@@ -274,24 +274,87 @@ interface Player {
   maxCombo: number;
   survived: boolean;
   userId?: string;
+  username?: string;
   metrics?: { wpm: number; accuracy: number; garbageSent: number; };
+  rank?: number;
 }
 
 interface RoomData {
   players: string[];
+  alivePlayers: string[];
   duration: number; // 60, 180, 300
   mods?: any;
+  status: 'waiting' | 'playing' | 'finished';
+  host?: string;
 }
 
 const players = new Map<string, Player>();
 const rooms = new Map<string, RoomData>();
-let matchmakingQueue: Array<{ socketId: string, duration: number, userId?: string, modString: string, mods?: any }> = [];
+let matchmakingQueue: Array<{ socketId: string, duration: number, userId?: string, username?: string, modString: string, mods?: any, joinedAt: number }> = [];
+
+// Matchmaking Loop
+setInterval(() => {
+  if (matchmakingQueue.length < 2) return;
+
+  const groups: Record<string, typeof matchmakingQueue> = {};
+  for (const p of matchmakingQueue) {
+    const key = `${p.duration}_${p.modString}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(p);
+  }
+
+  for (const key in groups) {
+    const group = groups[key];
+    if (group.length >= 2) {
+      const oldest = Math.min(...group.map(p => p.joinedAt));
+      if (group.length >= 10 || Date.now() - oldest > 10000) {
+        const matchPlayers = group.slice(0, 10);
+        matchmakingQueue = matchmakingQueue.filter(p => !matchPlayers.find(mp => mp.socketId === p.socketId));
+
+        const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+        
+        const roomData: RoomData = { 
+          players: [], 
+          alivePlayers: [], 
+          duration: matchPlayers[0].duration, 
+          mods: matchPlayers[0].mods,
+          status: 'playing' 
+        };
+        rooms.set(roomId, roomData);
+
+        for (const p of matchPlayers) {
+          const socket = io.sockets.sockets.get(p.socketId);
+          if (socket) {
+            socket.join(roomId);
+            players.set(p.socketId, { 
+              id: p.socketId, roomId, isFinished: false, score: 0, maxCombo: 0, survived: false, 
+              userId: p.userId, username: p.username 
+            });
+            roomData.players.push(p.socketId);
+            roomData.alivePlayers.push(p.socketId);
+          }
+        }
+
+        io.to(roomId).emit('game_start', {
+          seed: Math.random().toString(),
+          duration: roomData.duration,
+          roomId,
+          mods: roomData.mods,
+          players: roomData.players.map(id => {
+            const p = players.get(id);
+            return { id, username: p?.username || 'Guest' };
+          })
+        });
+      }
+    }
+  }
+}, 2000);
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
-  socket.on('join_room', (data: { roomId: string, duration?: number, userId?: string, mods?: any }) => {
-    const { roomId, duration = 60, userId, mods } = data;
+  socket.on('join_room', (data: { roomId: string, duration?: number, userId?: string, username?: string, mods?: any }) => {
+    const { roomId, duration = 60, userId, username, mods } = data;
     socket.join(roomId);
     
     players.set(socket.id, { 
@@ -301,76 +364,76 @@ io.on('connection', (socket) => {
       score: 0,
       maxCombo: 0,
       survived: false,
-      userId
+      userId,
+      username
     });
     
     let roomData = rooms.get(roomId);
     if (!roomData) {
-      roomData = { players: [], duration, mods };
+      roomData = { players: [], alivePlayers: [], duration, mods, status: 'waiting', host: socket.id };
       rooms.set(roomId, roomData);
     } else if (data.duration && roomData.players.length === 0) {
-      // Room creator overrides duration and mods
       roomData.duration = duration;
       roomData.mods = mods;
+      roomData.host = socket.id;
     }
 
     if (!roomData.players.includes(socket.id)) {
+      if (roomData.players.length >= 10) {
+        socket.emit('room_error', { message: 'Room is full (max 10 players)' });
+        return;
+      }
+      if (roomData.status !== 'waiting') {
+        socket.emit('room_error', { message: 'Game has already started' });
+        return;
+      }
       roomData.players.push(socket.id);
     }
     
-    console.log(`User ${socket.id} joined room ${roomId}`);
-    
-    if (roomData.players.length === 2) {
+    io.to(roomId).emit('lobby_update', {
+      players: roomData.players.map(id => {
+        const p = players.get(id);
+        return { id, username: p?.username || 'Guest', isHost: roomData?.host === id };
+      })
+    });
+  });
+
+  socket.on('start_private_match', () => {
+    const player = players.get(socket.id);
+    if (!player) return;
+    const roomData = rooms.get(player.roomId);
+    if (roomData && roomData.host === socket.id && roomData.status === 'waiting') {
+      if (roomData.players.length < 2) return; // Need at least 2 players
+      
+      roomData.status = 'playing';
+      roomData.alivePlayers = [...roomData.players];
+      
       roomData.players.forEach(pId => {
         const p = players.get(pId);
-        if (p) { p.isFinished = false; p.score = 0; p.maxCombo = 0; p.survived = false; }
+        if (p) { p.isFinished = false; p.score = 0; p.maxCombo = 0; p.survived = false; delete p.rank; }
       });
 
-      io.to(roomId).emit('game_start', {
+      io.to(player.roomId).emit('game_start', {
         seed: Math.random().toString(),
         duration: roomData.duration,
-        roomId,
-        mods: roomData.mods
+        roomId: player.roomId,
+        mods: roomData.mods,
+        players: roomData.players.map(id => {
+          const p = players.get(id);
+          return { id, username: p?.username || 'Guest' };
+        })
       });
     }
   });
 
-  socket.on('find_match', (data: { duration?: number, userId?: string, mods?: any }) => {
-    const { duration = 60, userId, mods } = data;
+  socket.on('find_match', (data: { duration?: number, userId?: string, username?: string, mods?: any }) => {
+    const { duration = 60, userId, username, mods } = data;
     const modString = JSON.stringify(mods || {});
     
-    // Check if someone else is in queue for the exact same duration and mods
-    const matchIndex = matchmakingQueue.findIndex(p => p.duration === duration && p.modString === modString && p.socketId !== socket.id);
-    
-    if (matchIndex !== -1) {
-      // Found a match
-      const opponent = matchmakingQueue.splice(matchIndex, 1)[0];
-      const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-      
-      // Join both to the room
-      socket.join(roomId);
-      const opponentSocket = io.sockets.sockets.get(opponent.socketId);
-      if (opponentSocket) opponentSocket.join(roomId);
-      
-      players.set(socket.id, { id: socket.id, roomId, isFinished: false, score: 0, maxCombo: 0, survived: false, userId });
-      players.set(opponent.socketId, { id: opponent.socketId, roomId, isFinished: false, score: 0, maxCombo: 0, survived: false, userId: opponent.userId });
-      
-      const roomData = { players: [socket.id, opponent.socketId], duration, mods };
-      rooms.set(roomId, roomData);
-      
-      io.to(roomId).emit('game_start', {
-        seed: Math.random().toString(),
-        duration: roomData.duration,
-        roomId,
-        mods: roomData.mods
-      });
-    } else {
-      // No match found, join queue
-      if (!matchmakingQueue.some(p => p.socketId === socket.id)) {
-        matchmakingQueue.push({ socketId: socket.id, duration, userId, modString, mods });
-      }
-      socket.emit('searching_for_match');
+    if (!matchmakingQueue.some(p => p.socketId === socket.id)) {
+      matchmakingQueue.push({ socketId: socket.id, duration, userId, username, modString, mods, joinedAt: Date.now() });
     }
+    socket.emit('searching_for_match');
   });
 
   socket.on('cancel_match', () => {
@@ -379,12 +442,31 @@ io.on('connection', (socket) => {
 
   socket.on('send_garbage', (amount: number) => {
     const player = players.get(socket.id);
-    if (player) socket.to(player.roomId).emit('receive_garbage', amount);
+    if (!player) return;
+    const roomData = rooms.get(player.roomId);
+    if (!roomData) return;
+    
+    // Pick a random alive opponent
+    const aliveOpponents = roomData.alivePlayers.filter(id => id !== socket.id);
+    if (aliveOpponents.length > 0) {
+      const targetId = aliveOpponents[Math.floor(Math.random() * aliveOpponents.length)];
+      io.to(targetId).emit('receive_garbage', amount);
+    }
+  });
+
+  socket.on('player_update', (metrics: any) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+    // Broadcast to others in the room
+    socket.to(player.roomId).emit('opponent_update', {
+      id: socket.id,
+      metrics
+    });
   });
 
   socket.on('game_over', async (data: { score: number, maxCombo: number, survived: boolean, metrics?: { wpm: number, accuracy: number, garbageSent: number } }) => {
     const player = players.get(socket.id);
-    if (!player) return;
+    if (!player || player.isFinished) return;
 
     player.isFinished = true;
     player.score = data.score;
@@ -393,9 +475,24 @@ io.on('connection', (socket) => {
     if (data.metrics) player.metrics = data.metrics;
 
     const roomData = rooms.get(player.roomId);
+    if (!roomData) return;
+
+    // Remove from alive players
+    roomData.alivePlayers = roomData.alivePlayers.filter(id => id !== socket.id);
     
+    // Assign rank (if they died)
+    if (!player.survived) {
+      player.rank = roomData.alivePlayers.length + 1;
+    }
+
+    io.to(player.roomId).emit('player_died', {
+      id: socket.id,
+      rank: player.rank,
+      score: player.score
+    });
+
     // Save to database if authenticated
-    if (player.userId && roomData && mongoose.connection.readyState === 1) {
+    if (player.userId && mongoose.connection.readyState === 1) {
       try {
         let modeStr = 'vanilla';
         if (roomData.mods) {
@@ -421,37 +518,50 @@ io.on('connection', (socket) => {
       }
     }
 
-    if (!roomData) return;
-    
-    const opponentId = roomData.players.find(id => id !== socket.id);
-    const opponent = opponentId ? players.get(opponentId) : null;
+    // Check if match is completely over (1 or 0 players left)
+    const activePlayersCount = roomData.players.filter(id => {
+      const p = players.get(id);
+      return p && !p.isFinished;
+    }).length;
 
-    if (opponent && opponent.isFinished) {
-      let winnerId: string | null = null;
-      if (player.survived && !opponent.survived) winnerId = player.id;
-      else if (!player.survived && opponent.survived) winnerId = opponent.id;
-      else {
-        if (player.score > opponent.score) winnerId = player.id;
-        else if (opponent.score > player.score) winnerId = opponent.id;
+    if (activePlayersCount <= 1 || roomData.alivePlayers.length <= 1) {
+      roomData.status = 'finished';
+      
+      // If someone is still alive, they are 1st
+      if (roomData.alivePlayers.length === 1) {
+        const winnerId = roomData.alivePlayers[0];
+        const winner = players.get(winnerId);
+        if (winner) winner.rank = 1;
       }
 
-      if (winnerId === null) {
-        io.to(player.id).emit('match_result', { result: 'DRAW', playerMetrics: player.metrics, opponentMetrics: opponent.metrics });
-        io.to(opponent.id).emit('match_result', { result: 'DRAW', playerMetrics: opponent.metrics, opponentMetrics: player.metrics });
-      } else {
-        io.to(player.id).emit('match_result', { 
-          result: player.id === winnerId ? 'WIN' : 'LOSE', 
-          playerMetrics: player.metrics, 
-          opponentMetrics: opponent.metrics 
-        });
-        io.to(opponent.id).emit('match_result', { 
-          result: opponent.id === winnerId ? 'WIN' : 'LOSE', 
-          playerMetrics: opponent.metrics, 
-          opponentMetrics: player.metrics 
-        });
+      // Generate final leaderboard
+      const results = roomData.players.map(id => {
+        const p = players.get(id);
+        return {
+          id,
+          username: p?.username || 'Guest',
+          score: p?.score || 0,
+          rank: p?.rank || 99,
+          survived: p?.survived || false,
+          metrics: p?.metrics
+        };
+      }).sort((a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank; // Sort by rank first
+        return b.score - a.score; // Tiebreaker score
+      });
+
+      // Assign ranks to survivors based on score
+      let currentRank = 1;
+      for (const r of results) {
+        if (r.rank === 99) {
+          r.rank = currentRank;
+        }
+        currentRank++;
       }
-    } else {
-      socket.emit('waiting_for_result');
+
+      io.to(player.roomId).emit('match_result', { leaderboard: results });
+      // Clean up room
+      rooms.delete(player.roomId);
     }
   });
 
@@ -463,12 +573,22 @@ io.on('connection', (socket) => {
     if (player) {
       const roomData = rooms.get(player.roomId);
       if (roomData) {
-        const newPlayers = roomData.players.filter(id => id !== socket.id);
-        if (newPlayers.length === 0) {
+        roomData.players = roomData.players.filter(id => id !== socket.id);
+        roomData.alivePlayers = roomData.alivePlayers.filter(id => id !== socket.id);
+        
+        if (roomData.players.length === 0) {
           rooms.delete(player.roomId);
         } else {
-          roomData.players = newPlayers;
-          io.to(player.roomId).emit('opponent_disconnected');
+          io.to(player.roomId).emit('opponent_disconnected', { id: socket.id });
+          if (roomData.host === socket.id && roomData.status === 'waiting') {
+            roomData.host = roomData.players[0]; // pass host
+            io.to(player.roomId).emit('lobby_update', {
+              players: roomData.players.map(id => {
+                const p = players.get(id);
+                return { id, username: p?.username || 'Guest', isHost: roomData.host === id };
+              })
+            });
+          }
         }
       }
       players.delete(socket.id);
@@ -478,5 +598,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`TypeClash Server listening on port ${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
 });

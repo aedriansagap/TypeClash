@@ -46,13 +46,13 @@ export default function Game() {
   const [roomCode, setRoomCode] = useState('');
   const [currentRoom, setCurrentRoom] = useState('');
   const [waitingForOpponent, setWaitingForOpponent] = useState(false);
-  const [opponentDisconnected, setOpponentDisconnected] = useState(false);
   
-  // Result State
-  const [matchResult, setMatchResult] = useState<'WIN' | 'LOSE' | 'DRAW' | null>(null);
+  // FFA State
+  const [opponents, setOpponents] = useState<{ [id: string]: { username: string, isHost?: boolean, metrics?: any, isDead?: boolean, rank?: number, score?: number } }>({});
+  const [isHost, setIsHost] = useState(false);
+  const [finalLeaderboard, setFinalLeaderboard] = useState<any[] | null>(null);
   const [waitingForResult, setWaitingForResult] = useState(false);
   const [playerMetrics, setPlayerMetrics] = useState<{ wpm: number, accuracy: number, garbageSent: number } | null>(null);
-  const [opponentMetrics, setOpponentMetrics] = useState<{ wpm: number, accuracy: number, garbageSent: number } | null>(null);
   
   // Custom Rules
   const [matchDuration, setMatchDuration] = useState<number>(60); // in seconds
@@ -136,8 +136,14 @@ export default function Game() {
           socketRef.current.emit('send_garbage', amount);
         }
       };
+      
+      engineRef.current.onMetricsUpdate = (metrics) => {
+        if (socketRef.current && !isSinglePlayer) {
+          socketRef.current.emit('player_update', metrics);
+        }
+      };
     }
-  }, []);
+  }, [isSinglePlayer]);
 
   useEffect(() => {
     if (engineRef.current) {
@@ -150,18 +156,34 @@ export default function Game() {
     if (!socketRef.current) {
       socketRef.current = io(SERVER_URL);
 
-      socketRef.current.on('game_start', (data: { seed: string, duration: number, roomId?: string, mods?: any }) => {
+      socketRef.current.on('lobby_update', (data: { players: any[] }) => {
+        const ops: any = {};
+        data.players.forEach(p => {
+          if (p.id !== socketRef.current?.id) ops[p.id] = p;
+          else setIsHost(p.isHost);
+        });
+        setOpponents(ops);
+      });
+
+      socketRef.current.on('game_start', (data: { seed: string, duration: number, roomId?: string, mods?: any, players?: any[] }) => {
         setWaitingForOpponent(false);
         setIsSearchingAuto(false);
         setIsSinglePlayer(false);
         setIsPlaying(true);
-        setOpponentDisconnected(false);
-        setMatchResult(null);
-        setWaitingForResult(false);
+                setWaitingForResult(false);
         setPlayerMetrics(null);
-        setOpponentMetrics(null);
+        setFinalLeaderboard(null);
         setMatchDuration(data.duration);
         if (data.roomId) setCurrentRoom(data.roomId);
+        
+        if (data.players) {
+          const ops: any = {};
+          data.players.forEach(p => {
+            if (p.id !== socketRef.current?.id) ops[p.id] = p;
+          });
+          setOpponents(ops);
+        }
+
         if (engineRef.current) {
           engineRef.current.start(data.seed, data.duration * 1000, data.mods);
         }
@@ -177,22 +199,43 @@ export default function Game() {
         }
       });
 
-      socketRef.current.on('opponent_disconnected', () => {
-        setOpponentDisconnected(true);
-        if (engineRef.current) {
-          engineRef.current.stop();
+      socketRef.current.on('opponent_update', (data: { id: string, metrics: any }) => {
+        setOpponents(prev => {
+          if (!prev[data.id]) return prev;
+          return { ...prev, [data.id]: { ...prev[data.id], metrics: data.metrics } };
+        });
+      });
+
+      socketRef.current.on('player_died', (data: { id: string, rank: number, score: number }) => {
+        if (data.id !== socketRef.current?.id) {
+          setOpponents(prev => {
+            if (!prev[data.id]) return prev;
+            return { ...prev, [data.id]: { ...prev[data.id], isDead: true, rank: data.rank, score: data.score } };
+          });
         }
       });
 
-      socketRef.current.on('match_result', (data: { result: 'WIN' | 'LOSE' | 'DRAW', playerMetrics?: any, opponentMetrics?: any }) => {
-        setWaitingForResult(false);
-        setMatchResult(data.result);
-        if (data.playerMetrics) setPlayerMetrics(data.playerMetrics);
-        if (data.opponentMetrics) setOpponentMetrics(data.opponentMetrics);
+      socketRef.current.on('opponent_disconnected', (data: { id: string }) => {
+        setOpponents(prev => {
+          const next = { ...prev };
+          delete next[data.id];
+          return next;
+        });
       });
+
+      socketRef.current.on('match_result', (data: { leaderboard: any[] }) => {
+        setWaitingForResult(false);
+        setFinalLeaderboard(data.leaderboard);
+              });
 
       socketRef.current.on('waiting_for_result', () => {
         setWaitingForResult(true);
+      });
+
+      socketRef.current.on('room_error', (data: { message: string }) => {
+        alert(data.message);
+        setWaitingForOpponent(false);
+        setCurrentRoom('');
       });
     }
 
@@ -248,8 +291,7 @@ export default function Game() {
         setIsSinglePlayer(true);
         setIsPlaying(true);
         setPlayerMetrics(null);
-        setOpponentMetrics(null);
-        setGameState(prev => ({...prev, isGameOver: false}));
+                setGameState(prev => ({...prev, isGameOver: false}));
         
         if (engineRef.current) {
           engineRef.current.start(Math.random().toString(), matchDuration * 1000, mods);
@@ -381,14 +423,14 @@ export default function Game() {
     const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     setCurrentRoom(randomId);
     setWaitingForOpponent(true);
-    socketRef.current?.emit('join_room', { roomId: randomId, duration: matchDuration, userId, mods });
+    socketRef.current?.emit('join_room', { roomId: randomId, duration: matchDuration, userId, username, mods });
   };
 
   const joinRoom = () => {
     if (roomCode.trim() !== '') {
       setCurrentRoom(roomCode.toUpperCase());
       setWaitingForOpponent(true);
-      socketRef.current?.emit('join_room', { roomId: roomCode.toUpperCase(), userId });
+      socketRef.current?.emit('join_room', { roomId: roomCode.toUpperCase(), userId, username });
     }
   };
 
@@ -396,13 +438,12 @@ export default function Game() {
     setIsSinglePlayer(true);
     setIsPlaying(true);
     setPlayerMetrics(null);
-    setOpponentMetrics(null);
-    setGameState(prev => ({...prev, isGameOver: false}));
+        setGameState(prev => ({...prev, isGameOver: false}));
     engineRef.current?.start(Math.random().toString(), matchDuration * 1000, mods);
   };
 
   const findMatch = () => {
-    socketRef.current?.emit('find_match', { duration: matchDuration, userId, mods });
+    socketRef.current?.emit('find_match', { duration: matchDuration, userId, username, mods });
   };
 
   const cancelMatch = () => {
@@ -416,13 +457,10 @@ export default function Game() {
     setCurrentRoom('');
     setRoomCode('');
     setWaitingForOpponent(false);
-    setOpponentDisconnected(false);
-    setMatchResult(null);
-    setWaitingForResult(false);
+            setWaitingForResult(false);
     setIsSearchingAuto(false);
     setPlayerMetrics(null);
-    setOpponentMetrics(null);
-    setGameState(prev => ({...prev, isGameOver: false}));
+        setGameState(prev => ({...prev, isGameOver: false}));
     if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current.connect();
@@ -500,6 +538,40 @@ export default function Game() {
         </motion.div>
       )}
       </AnimatePresence>
+
+      {/* Opponents Sidebar for FFA */}
+      {!isSinglePlayer && (isPlaying || gameState.isGameOver) && Object.keys(opponents).length > 0 && (
+        <div style={{ position: 'absolute', right: 20, top: 100, width: 280, background: 'rgba(0,0,0,0.7)', borderRadius: 10, padding: 15, zIndex: 10, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <h3 style={{ color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: 10, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Swords size={18} /> Opponents
+          </h3>
+          <div className={styles.noScrollbar} style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '60vh', overflowY: 'auto' }}>
+            {Object.values(opponents).sort((a,b) => {
+               if (a.isDead && !b.isDead) return 1;
+               if (!a.isDead && b.isDead) return -1;
+               return (b.metrics?.wpm || 0) - (a.metrics?.wpm || 0);
+            }).map((opp, idx) => (
+              <div key={idx} style={{ padding: 10, background: opp.isDead ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255,255,255,0.05)', borderRadius: 5, border: opp.isDead ? '1px solid rgba(239,68,68,0.5)' : '1px solid transparent' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#fff', marginBottom: opp.isDead ? 0 : 5 }}>
+                  <span style={{ fontWeight: 'bold', textDecoration: opp.isDead ? 'line-through' : 'none' }}>{opp.username}</span>
+                  {opp.isDead ? (
+                    <span style={{ color: '#ef4444', fontWeight: 'bold' }}>Rank {opp.rank}</span>
+                  ) : (
+                    <span style={{ color: '#4ade80', fontWeight: 'bold' }}>{opp.metrics?.wpm || 0} WPM</span>
+                  )}
+                </div>
+                {!opp.isDead && (
+                   <div style={{ display: 'flex', gap: '4px' }}>
+                     {Array.from({ length: Math.max(0, opp.metrics?.lives ?? 3) }).map((_, i) => (
+                       <Heart key={i} size={14} fill="#ef4444" color="#ef4444" />
+                     ))}
+                   </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       {/* Game Canvas */}
       <canvas ref={canvasRef} className={styles.canvas} />
@@ -948,23 +1020,42 @@ export default function Game() {
       {/* Waiting for Opponent (Private Room) */}
       {waitingForOpponent && !isPlaying && !isSearchingAuto && (
         <div className={styles.overlay}>
-          <h2 className={styles.title}>Room: {currentRoom}</h2>
-          <p className={styles.scoreText}>Match Time: {matchDuration}s</p>
-          <p className={styles.scoreText}>Waiting for an opponent to join...</p>
-          <div className={styles.loader}></div>
-          <button className={styles.btn} style={{ background: 'linear-gradient(135deg, #ef4444, #b91c1c)' }} onClick={returnToMenu}>Leave Room</button>
+          <div className={styles.multiplayerBox} style={{ width: '400px' }}>
+            <h2 className={styles.title} style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>Lobby: {currentRoom}</h2>
+            <p className={styles.scoreText} style={{ marginBottom: '1.5rem' }}>Match Time: {matchDuration}s</p>
+            
+            <div style={{ background: 'rgba(0,0,0,0.5)', padding: '10px', borderRadius: '8px', marginBottom: '1.5rem' }}>
+              <h3 style={{ margin: '0 0 10px 0', borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '5px' }}>Players ({Object.keys(opponents).length + 1}/10)</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{username} (You)</span> {isHost && <span style={{ color: '#fcd34d' }}>Host</span>}</div>
+                {Object.values(opponents).map((opp, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1' }}>
+                    <span>{opp.username}</span> {opp.isHost && <span style={{ color: '#fcd34d' }}>Host</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {isHost && Object.keys(opponents).length >= 1 ? (
+               <button className={styles.btn} style={{ width: '100%', marginBottom: '1rem', background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={() => socketRef.current?.emit('start_private_match')}>Start Game</button>
+            ) : isHost ? (
+               <p style={{ color: '#94a3b8', textAlign: 'center', marginBottom: '1rem' }}>Waiting for players...</p>
+            ) : (
+               <p style={{ color: '#94a3b8', textAlign: 'center', marginBottom: '1rem' }}>Waiting for host to start...</p>
+            )}
+
+            <button className={styles.btn} style={{ width: '100%', background: 'linear-gradient(135deg, #ef4444, #b91c1c)' }} onClick={returnToMenu}>Leave Lobby</button>
+          </div>
         </div>
       )}
 
       {/* Game Over Screen */}
       {gameState.isGameOver && !waitingForResult && (
-        <div className={styles.overlay}>
+        <div className={styles.overlay} style={{ zIndex: 100 }}>
           <div className={styles.multiplayerBox} style={{ minWidth: '400px' }}>
             <h2 className={styles.title} style={{ fontSize: '3rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
               {isSinglePlayer ? <><Activity size={40} /> Match Complete!</> : (
-                matchResult === 'WIN' ? <><Trophy size={40} /> You Won!</> :
-                matchResult === 'LOSE' ? <><Skull size={40} /> You Lost!</> :
-                matchResult === 'DRAW' ? <><Shield size={40} /> It's a Draw!</> : "Game Over"
+                 <><Trophy size={40} /> Match Results</>
               )}
             </h2>
             
@@ -972,52 +1063,49 @@ export default function Game() {
               {gameState.survived ? "You Survived the Time Limit!" : "You were crushed by words."}
             </p>
 
-            {/* Stats Grid */}
-            <div style={{ display: 'flex', gap: '2rem', justifyContent: 'center', width: '100%', marginBottom: '2rem' }}>
-              {/* Player Stats */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.05)', padding: '1.5rem', borderRadius: '12px', flex: 1 }}>
-                <h3 style={{ borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '0.5rem' }}>
-                  {isSinglePlayer ? "Your Stats" : "You"}
-                </h3>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Score:</span> <span style={{ fontWeight: 'bold', color: '#4ade80' }}>{gameState.score}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Max Combo:</span> <span>{gameState.maxCombo}</span>
-                </div>
+            {isSinglePlayer ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.05)', padding: '1.5rem', borderRadius: '12px', width: '100%', marginBottom: '2rem' }}>
+                <h3 style={{ borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '0.5rem' }}>Your Stats</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Score:</span> <span style={{ fontWeight: 'bold', color: '#4ade80' }}>{gameState.score}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Max Combo:</span> <span>{gameState.maxCombo}</span></div>
                 {playerMetrics && (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>WPM:</span> <span style={{ fontWeight: 'bold' }}>{playerMetrics.wpm}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Accuracy:</span> <span>{playerMetrics.accuracy}%</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Garbage Sent:</span> <span style={{ color: '#f87171' }}>{playerMetrics.garbageSent}</span>
-                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>WPM:</span> <span style={{ fontWeight: 'bold' }}>{playerMetrics.wpm}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Accuracy:</span> <span>{playerMetrics.accuracy}%</span></div>
                   </>
                 )}
               </div>
-
-              {/* Opponent Stats (Multiplayer Only) */}
-              {!isSinglePlayer && opponentMetrics && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.05)', padding: '1.5rem', borderRadius: '12px', flex: 1 }}>
-                  <h3 style={{ borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '0.5rem' }}>Opponent</h3>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>WPM:</span> <span style={{ fontWeight: 'bold' }}>{opponentMetrics.wpm}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Accuracy:</span> <span>{opponentMetrics.accuracy}%</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Garbage Sent:</span> <span style={{ color: '#f87171' }}>{opponentMetrics.garbageSent}</span>
-                  </div>
+            ) : (
+              finalLeaderboard && (
+                <div className={styles.noScrollbar} style={{ width: '100%', marginBottom: '2rem', maxHeight: '40vh', overflowY: 'auto' }}>
+                  <table className={styles.table} style={{ width: '100%', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+                        <th style={{ padding: '10px' }}>Rank</th>
+                        <th style={{ padding: '10px' }}>Player</th>
+                        <th style={{ padding: '10px' }}>Score</th>
+                        <th style={{ padding: '10px' }}>WPM</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {finalLeaderboard.map((row, idx) => (
+                        <tr key={idx} style={{ background: row.username === username ? 'rgba(59, 130, 246, 0.2)' : (idx % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'transparent') }}>
+                          <td style={{ padding: '10px', fontWeight: 'bold', color: row.rank === 1 ? '#fcd34d' : '#fff' }}>
+                            {row.rank === 1 && <Trophy size={14} style={{ marginRight: '5px' }} />}
+                            {row.rank}
+                          </td>
+                          <td style={{ padding: '10px', textDecoration: !row.survived ? 'line-through' : 'none' }}>{row.username}</td>
+                          <td style={{ padding: '10px', color: '#4ade80', fontWeight: 'bold' }}>{row.score}</td>
+                          <td style={{ padding: '10px' }}>{row.metrics?.wpm || 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              )}
-            </div>
+              )
+            )}
 
-            <button className={styles.btn} onClick={returnToMenu}>Back to Menu</button>
+            <button className={styles.btn} style={{ width: '100%' }} onClick={returnToMenu}>Back to Menu</button>
           </div>
         </div>
       )}
@@ -1031,14 +1119,7 @@ export default function Game() {
         </div>
       )}
 
-      {/* Opponent Disconnected */}
-      {opponentDisconnected && (
-        <div className={styles.overlay}>
-          <h2 className={styles.title}>Opponent Disconnected</h2>
-          <p className={styles.scoreText}>You win by default!</p>
-          <button className={styles.btn} onClick={returnToMenu}>Back to Menu</button>
-        </div>
-      )}
+
       {/* Footer */}
       {!isPlaying && !gameState.isGameOver && (
         <div style={{ position: 'absolute', bottom: '1rem', width: '100%', textAlign: 'center', fontSize: '0.8rem', color: '#9ca3af', zIndex: 30 }}>
