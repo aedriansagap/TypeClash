@@ -234,6 +234,32 @@ export default function Game() {
     }
   }, [isSinglePlayer, userId, matchDuration]);
 
+  // Auto Matchmaking Timeout Fallback
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    if (isSearchingAuto) {
+      timeout = setTimeout(() => {
+        if (socketRef.current) {
+          socketRef.current.emit('cancel_match');
+        }
+        setIsSearchingAuto(false);
+        
+        setIsSinglePlayer(true);
+        setIsPlaying(true);
+        setPlayerMetrics(null);
+        setOpponentMetrics(null);
+        setGameState(prev => ({...prev, isGameOver: false}));
+        
+        if (engineRef.current) {
+          engineRef.current.start(Math.random().toString(), matchDuration * 1000, mods);
+        }
+        
+        alert("Matchmaking timeout: No opponent found. Starting a Single Player match to warm up!");
+      }, 15000);
+    }
+    return () => clearTimeout(timeout);
+  }, [isSearchingAuto, matchDuration, mods]);
+
   const handleAuth = async (endpoint: string) => {
     if (!username.trim()) return;
     setAuthError('');
