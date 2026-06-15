@@ -73,14 +73,14 @@ export class GameEngine {
   private theme: ThemeConfig;
   private fontFamily: string;
 
-  constructor(canvas: HTMLCanvasElement, theme?: ThemeConfig, fontFamily?: string) {
+  constructor(canvas: HTMLCanvasElement, theme: ThemeConfig | undefined, fontFamily: string | undefined, soundEngine: SoundEngine) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.theme = theme || THEMES.dark;
     this.fontFamily = fontFamily || 'Inter';
     this.random = seedrandom(); // Default unseeded
     this.adaptiveDifficulty = new AdaptiveDifficulty();
-    this.sound = new SoundEngine();
+    this.sound = soundEngine;
     
     // Bind event listeners
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -109,7 +109,7 @@ export class GameEngine {
     this.spawnTimer = 0;
     this.lastTime = performance.now();
     this.notifyState();
-    this.sound.startBGM();
+    this.sound.startGameplayBGM();
     this.loop(this.lastTime);
   }
 
@@ -189,7 +189,7 @@ export class GameEngine {
     
     // Scale speed and spawn intervals based on progressScore
     const difficultyMultiplier = 1 + progressScore; 
-    this.sound.updateBGM(progressScore);
+    this.sound.updateGameplayBGM(progressScore);
     this.currentSpawnInterval = Math.max(400, this.baseSpawnInterval / difficultyMultiplier);
     const currentSpeed = this.baseSpeed * difficultyMultiplier;
 

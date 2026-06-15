@@ -2,11 +2,12 @@ export class SoundEngine {
   private ctx: AudioContext | null = null;
   public isMuted: boolean = false;
   
-  // BGM Drone
-  private droneOsc1: OscillatorNode | null = null;
-  private droneOsc2: OscillatorNode | null = null;
-  private droneGain: GainNode | null = null;
-  private isPlayingBgm: boolean = false;
+  // BGM
+  private bgmOscs: OscillatorNode[] = [];
+  private bgmGain: GainNode | null = null;
+  private isPlayingGameplayBgm: boolean = false;
+  private isPlayingMenuBgm: boolean = false;
+  private menuBgmInterval: any = null;
 
   constructor() {
     // AudioContext will be initialized on first user interaction
@@ -97,62 +98,100 @@ export class SoundEngine {
     });
   }
 
-  // --- Procedural BGM (Pulsating Drone) ---
+  // --- Procedural BGM ---
 
-  public startBGM() {
-    if (!this.ctx || this.isMuted || this.isPlayingBgm) return;
+  public startGameplayBGM() {
+    this.stopBGM();
+    if (!this.ctx || this.isMuted) return;
     
-    this.droneGain = this.ctx.createGain();
-    this.droneGain.gain.setValueAtTime(0.05, this.ctx.currentTime);
-    this.droneGain.connect(this.ctx.destination);
+    this.bgmGain = this.ctx.createGain();
+    this.bgmGain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+    this.bgmGain.connect(this.ctx.destination);
 
-    this.droneOsc1 = this.ctx.createOscillator();
-    this.droneOsc1.type = 'sawtooth';
-    this.droneOsc1.frequency.setValueAtTime(65.41, this.ctx.currentTime); // C2
+    const osc1 = this.ctx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(65.41, this.ctx.currentTime); // C2
 
-    this.droneOsc2 = this.ctx.createOscillator();
-    this.droneOsc2.type = 'square';
-    this.droneOsc2.frequency.setValueAtTime(65.8, this.ctx.currentTime); // Slight detune
+    const osc2 = this.ctx.createOscillator();
+    osc2.type = 'square';
+    osc2.frequency.setValueAtTime(65.8, this.ctx.currentTime); // Slight detune
 
-    this.droneOsc1.connect(this.droneGain);
-    this.droneOsc2.connect(this.droneGain);
+    osc1.connect(this.bgmGain);
+    osc2.connect(this.bgmGain);
 
-    this.droneOsc1.start();
-    this.droneOsc2.start();
-    this.isPlayingBgm = true;
+    osc1.start();
+    osc2.start();
+    
+    this.bgmOscs = [osc1, osc2];
+    this.isPlayingGameplayBgm = true;
   }
 
-  public updateBGM(progressScore: number) {
-    if (!this.ctx || !this.isPlayingBgm || !this.droneOsc1 || !this.droneOsc2 || !this.droneGain) return;
+  public updateGameplayBGM(progressScore: number) {
+    if (!this.ctx || !this.isPlayingGameplayBgm || this.bgmOscs.length < 2 || !this.bgmGain) return;
     
-    // As progressScore increases (0 to ~4):
-    // 1. Pitch bends up slightly (tension)
-    // 2. Volume increases slightly
     const baseFreq = 65.41;
     const targetFreq = baseFreq + (progressScore * 10);
     
-    this.droneOsc1.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.5);
-    this.droneOsc2.frequency.setTargetAtTime(targetFreq + 0.5, this.ctx.currentTime, 0.5);
+    this.bgmOscs[0].frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.5);
+    this.bgmOscs[1].frequency.setTargetAtTime(targetFreq + 0.5, this.ctx.currentTime, 0.5);
     
     const targetVol = 0.05 + Math.min(0.1, progressScore * 0.02);
-    this.droneGain.gain.setTargetAtTime(targetVol, this.ctx.currentTime, 0.5);
+    this.bgmGain.gain.setTargetAtTime(targetVol, this.ctx.currentTime, 0.5);
+  }
+
+  public startMenuBGM() {
+    if (this.isPlayingMenuBgm || this.isPlayingGameplayBgm) return;
+    this.stopBGM();
+    if (!this.ctx || this.isMuted) return;
+    
+    this.isPlayingMenuBgm = true;
+
+    // A simple chill ambient loop (C maj 7 arpeggio)
+    const notes = [261.63, 329.63, 392.00, 493.88]; // C4, E4, G4, B4
+    let noteIndex = 0;
+
+    const playNextNote = () => {
+      if (!this.isPlayingMenuBgm || !this.ctx || this.isMuted) return;
+      this.playTone(notes[noteIndex], 'sine', 2.0, 0.05); // Soft, long sine wave
+      noteIndex = (noteIndex + 1) % notes.length;
+    };
+
+    // Play first note immediately
+    playNextNote();
+    
+    // Schedule subsequent notes
+    this.menuBgmInterval = setInterval(playNextNote, 1000); // 1 note per second
   }
 
   public stopBGM() {
-    if (this.droneOsc1) {
-      this.droneOsc1.stop();
-      this.droneOsc1.disconnect();
-      this.droneOsc1 = null;
+    this.bgmOscs.forEach(osc => {
+      try {
+        osc.stop();
+        osc.disconnect();
+      } catch(e) {}
+    });
+    this.bgmOscs = [];
+    
+    if (this.bgmGain) {
+      this.bgmGain.disconnect();
+      this.bgmGain = null;
     }
-    if (this.droneOsc2) {
-      this.droneOsc2.stop();
-      this.droneOsc2.disconnect();
-      this.droneOsc2 = null;
+
+    if (this.menuBgmInterval) {
+      clearInterval(this.menuBgmInterval);
+      this.menuBgmInterval = null;
     }
-    if (this.droneGain) {
-      this.droneGain.disconnect();
-      this.droneGain = null;
+
+    this.isPlayingGameplayBgm = false;
+    this.isPlayingMenuBgm = false;
+  }
+
+  public setMuted(muted: boolean) {
+    this.isMuted = muted;
+    if (muted) {
+      this.stopBGM();
+    } else {
+      // It will be restarted by the component based on game state
     }
-    this.isPlayingBgm = false;
   }
 }

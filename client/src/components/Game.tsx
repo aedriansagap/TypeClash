@@ -7,6 +7,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { User, BarChart2, BookOpen, LogOut, Target, Clock, Key, Flame, Heart, Trophy, Skull, Activity, Shield, Check, X, Swords, Volume2, VolumeX } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
+import { SoundEngine } from '@/lib/SoundEngine';
 import { THEMES, FONTS } from '@/lib/themes';
 import styles from './Game.module.css';
 
@@ -16,6 +17,7 @@ export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const soundEngineRef = useRef<SoundEngine | null>(null);
   
   // Auth State
   const [authMode, setAuthMode] = useState<'SELECT' | 'GUEST' | 'LOGIN' | 'REGISTER'>('SELECT');
@@ -120,13 +122,39 @@ export default function Game() {
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+
+    // Global Sound Engine Initialization
+    if (!soundEngineRef.current) {
+      soundEngineRef.current = new SoundEngine();
+    }
+    
+    const handleInteraction = () => {
+      if (soundEngineRef.current) {
+        soundEngineRef.current.init();
+        soundEngineRef.current.resume();
+        // Start Menu BGM only if we are not actively in a game
+        if (!isPlaying && !gameState.isGameOver) {
+          soundEngineRef.current.startMenuBGM();
+        }
+      }
+      document.removeEventListener('click', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
+    };
+
+    document.addEventListener('click', handleInteraction);
+    document.addEventListener('keydown', handleInteraction);
+
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+      document.removeEventListener('click', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
+    };
   }, []);
 
   useEffect(() => {
     // Initialize Game Engine
-    if (canvasRef.current && !engineRef.current) {
-      engineRef.current = new GameEngine(canvasRef.current, THEMES[customization.theme], customization.fontFamily);
+    if (canvasRef.current && !engineRef.current && soundEngineRef.current) {
+      engineRef.current = new GameEngine(canvasRef.current, THEMES[customization.theme], customization.fontFamily, soundEngineRef.current);
       engineRef.current.onStateChange = (state) => {
         setGameState(state);
       };
@@ -152,8 +180,8 @@ export default function Game() {
   }, [customization]);
 
   useEffect(() => {
-    if (engineRef.current) {
-      engineRef.current.sound.isMuted = isMuted;
+    if (soundEngineRef.current) {
+      soundEngineRef.current.setMuted(isMuted);
     }
   }, [isMuted]);
 
@@ -426,8 +454,6 @@ export default function Game() {
   };
 
   const createRoom = () => {
-    engineRef.current?.sound.init();
-    engineRef.current?.sound.resume();
     const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     setCurrentRoom(randomId);
     setWaitingForOpponent(true);
@@ -436,8 +462,6 @@ export default function Game() {
 
   const joinRoom = () => {
     if (roomCode.trim() !== '') {
-    engineRef.current?.sound.init();
-    engineRef.current?.sound.resume();
       setCurrentRoom(roomCode.toUpperCase());
       setWaitingForOpponent(true);
       socketRef.current?.emit('join_room', { roomId: roomCode.toUpperCase(), userId, username });
@@ -445,8 +469,6 @@ export default function Game() {
   };
 
   const playSinglePlayer = () => {
-    engineRef.current?.sound.init();
-    engineRef.current?.sound.resume();
     setIsSinglePlayer(true);
     setIsPlaying(true);
     setPlayerMetrics(null);
@@ -455,8 +477,6 @@ export default function Game() {
   };
 
   const findMatch = () => {
-    engineRef.current?.sound.init();
-    engineRef.current?.sound.resume();
     socketRef.current?.emit('find_match', { duration: matchDuration, userId, username, mods });
   };
 
@@ -466,6 +486,7 @@ export default function Game() {
   };
 
   const returnToMenu = () => {
+    soundEngineRef.current?.startMenuBGM();
     setIsPlaying(false);
     setIsSinglePlayer(false);
     setCurrentRoom('');
