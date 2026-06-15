@@ -62,6 +62,7 @@ export class GameEngine {
   private modifiers?: GameModifiers;
   private adaptiveDifficulty: AdaptiveDifficulty;
   public sound: SoundEngine;
+  private lastProgressScoreLevel: number = 0;
 
   // Callbacks
   public onStateChange: (state: GameState & { maxCombo: number }) => void = () => {};
@@ -107,6 +108,7 @@ export class GameEngine {
     this.targetedWordId = null;
     this.timeElapsed = 0;
     this.spawnTimer = 0;
+    this.lastProgressScoreLevel = 0;
     this.lastTime = performance.now();
     this.notifyState();
     this.sound.startGameplayBGM();
@@ -183,12 +185,18 @@ export class GameEngine {
 
     // Calculate progressive difficulty score based on time, combo, and score
     const timeRatio = this.timeElapsed / this.matchDuration;
-    let progressScore = timeRatio * 1.5; // Max 1.5 from time
-    progressScore += Math.min(1.0, this.state.combo * 0.02); // Max 1.0 from combo
-    progressScore += Math.min(1.0, this.state.score * 0.001); // Max 1.0 from score
+    let progressScore = timeRatio * 1.0; // Max 1.0 from time
+    progressScore += Math.min(0.5, this.state.combo * 0.01); // Max 0.5 from combo
+    progressScore += Math.min(0.5, this.state.score * 0.0005); // Max 0.5 from score
     
     // Scale speed and spawn intervals based on progressScore
     const difficultyMultiplier = 1 + progressScore; 
+    
+    if (Math.floor(progressScore) > this.lastProgressScoreLevel) {
+      this.lastProgressScoreLevel = Math.floor(progressScore);
+      this.sound.playDifficultyUp();
+    }
+    
     this.sound.updateGameplayBGM(progressScore);
     this.currentSpawnInterval = Math.max(400, this.baseSpawnInterval / difficultyMultiplier);
     const currentSpeed = this.baseSpeed * difficultyMultiplier;
@@ -365,6 +373,10 @@ export class GameEngine {
       this.state.maxCombo = this.state.combo;
     }
     this.state.score += 10 * this.state.combo;
+    
+    if (this.state.combo > 0 && this.state.combo % 10 === 0) {
+      this.sound.playComboMilestone(this.state.combo);
+    }
     
     // Check garbage mechanics (e.g., every 5 combo sends 1 garbage)
     if (this.state.combo > 0 && this.state.combo % 5 === 0) {

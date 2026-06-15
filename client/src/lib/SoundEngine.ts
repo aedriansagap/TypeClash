@@ -98,6 +98,25 @@ export class SoundEngine {
     });
   }
 
+  public playUIHover() {
+    this.playTone(600, 'sine', 0.05, 0.05);
+  }
+
+  public playUIClick() {
+    this.playTone(900, 'square', 0.05, 0.1);
+  }
+
+  public playComboMilestone(combo: number) {
+    const baseFreq = 440 + (combo * 5);
+    this.playTone(baseFreq, 'sine', 0.2, 0.2);
+    setTimeout(() => this.playTone(baseFreq * 1.5, 'sine', 0.4, 0.2), 150);
+  }
+
+  public playDifficultyUp() {
+    // Energetic sweep up
+    this.playTone(400, 'sawtooth', 0.5, 0.2, 800);
+  }
+
   // --- Procedural BGM ---
 
   public startGameplayBGM() {

@@ -38,12 +38,12 @@ export class Dictionary {
     
     if (mods?.longestWords) {
       // Brutal scaling for long words
-      minLength = 6 + Math.floor(progressScore * 5);
-      maxLength = 10 + Math.floor(progressScore * 6);
+      minLength = 6 + Math.floor(progressScore * 3);
+      maxLength = 10 + Math.floor(progressScore * 4);
     } else {
       // Normal modes scaling
-      minLength = 1 + Math.floor(progressScore * 4);
-      maxLength = 5 + Math.floor(progressScore * 4);
+      minLength = 1 + Math.floor(progressScore * 2);
+      maxLength = 5 + Math.floor(progressScore * 3);
     }
 
     let filtered = wordList.filter(w => w.length >= minLength && w.length <= maxLength);
