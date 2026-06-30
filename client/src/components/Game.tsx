@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { User, BarChart2, BookOpen, LogOut, Target, Clock, Key, Flame, Heart, Trophy, Skull, Activity, Shield, Check, X, Swords, Volume2, VolumeX } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark } from '@fortawesome/free-solid-svg-icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import { SoundEngine } from '@/lib/SoundEngine';
@@ -528,13 +529,13 @@ export default function Game() {
         >
           <div className={styles.statPanel}>
             <div className={styles.statItem}>
-              <div className={styles.statHeader}><Target size={16} /> Score</div>
+              <div className={styles.statHeader}><FontAwesomeIcon icon={faBullseye} style={{ fontSize: 16 }} /> Score</div>
               <motion.div key={gameState.score} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={styles.statValue}>
                 {gameState.score}
               </motion.div>
             </div>
             <div className={styles.statItem}>
-              <div className={styles.statHeader}><Clock size={16} /> Time</div>
+              <div className={styles.statHeader}><FontAwesomeIcon icon={faClock} style={{ fontSize: 16 }} /> Time</div>
               <motion.div 
                 animate={gameState.timeLeft <= 10 ? { scale: [1, 1.1, 1], color: ['#f8fafc', '#ef4444', '#f8fafc'] } : {}}
                 transition={{ repeat: gameState.timeLeft <= 10 ? Infinity : 0, duration: 0.5 }}
@@ -544,7 +545,7 @@ export default function Game() {
             </div>
             {currentRoom && (
               <div className={styles.statItem}>
-                <div className={styles.statHeader}><Key size={16} /> Room</div>
+                <div className={styles.statHeader}><FontAwesomeIcon icon={faKey} style={{ fontSize: 16 }} /> Room</div>
                 <div className={styles.statValue}>{currentRoom}</div>
               </div>
             )}
@@ -552,18 +553,18 @@ export default function Game() {
           
           <div className={styles.statPanel}>
             <div className={styles.statItem} style={{ color: gameState.combo > 5 ? '#fcd34d' : 'inherit' }}>
-              <div className={styles.statHeader} style={{ color: gameState.combo > 5 ? '#fde68a' : '#94a3b8' }}><Flame size={16} /> Combo</div>
+              <div className={styles.statHeader} style={{ color: gameState.combo > 5 ? '#fde68a' : '#94a3b8' }}><FontAwesomeIcon icon={faFire} style={{ fontSize: 16 }} /> Combo</div>
               <motion.div key={gameState.combo} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={styles.statValue} style={{ color: gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>
                 x{gameState.combo}
               </motion.div>
             </div>
             <div className={styles.statItem}>
-              <div className={styles.statHeader}><Heart size={16} /> Lives</div>
+              <div className={styles.statHeader}><FontAwesomeIcon icon={faHeart} style={{ fontSize: 16 }} /> Lives</div>
               <div className={styles.statValue} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                 <AnimatePresence>
                   {Array.from({ length: Math.max(0, gameState.lives) }).map((_, i) => (
                     <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
-                      <Heart size={24} fill="#ef4444" color="#ef4444" />
+                      <FontAwesomeIcon icon={faHeart} style={{ fontSize: 24, color: "#ef4444" }} />
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -578,7 +579,7 @@ export default function Game() {
       {!isSinglePlayer && (isPlaying || gameState.isGameOver) && Object.keys(opponents).length > 0 && (
         <div style={{ position: 'absolute', right: 20, top: 100, width: 280, background: 'rgba(0,0,0,0.7)', borderRadius: 10, padding: 15, zIndex: 10, display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <h3 style={{ color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: 10, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Swords size={18} /> Opponents
+            <FontAwesomeIcon icon={faBolt} style={{ fontSize: 18 }} /> Opponents
           </h3>
           <div className={styles.noScrollbar} style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '60vh', overflowY: 'auto' }}>
             {Object.values(opponents).sort((a,b) => {
@@ -598,7 +599,7 @@ export default function Game() {
                 {!opp.isDead && (
                    <div style={{ display: 'flex', gap: '4px' }}>
                      {Array.from({ length: Math.max(0, opp.metrics?.lives ?? 3) }).map((_, i) => (
-                       <Heart key={i} size={14} fill="#ef4444" color="#ef4444" />
+                       <FontAwesomeIcon key={i} icon={faHeart} style={{ fontSize: 14, color: "#ef4444" }} />
                      ))}
                    </div>
                 )}
@@ -679,19 +680,19 @@ export default function Game() {
             <div className={styles.navBrand}>TypeClash</div>
             <div className={styles.navControls}>
               <div className={styles.navUserInfo}>
-                <User size={18} /> {username} {isGuest && <span style={{fontSize: '0.8rem', color: '#fcd34d'}}>(Guest)</span>}
+                <FontAwesomeIcon icon={faUser} style={{ fontSize: 18 }} /> {username} {isGuest && <span style={{fontSize: '0.8rem', color: '#fcd34d'}}>(Guest)</span>}
               </div>
               <button onClick={loadProfile} className={styles.navBtn}>
-                <BarChart2 size={16} /> Profile
+                <FontAwesomeIcon icon={faChartSimple} style={{ fontSize: 16 }} /> Profile
               </button>
               <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
-                <BookOpen size={16} /> How to Play
+                <FontAwesomeIcon icon={faBookOpen} style={{ fontSize: 16 }} /> How to Play
               </button>
               <button onClick={() => setIsMuted(!isMuted)} className={styles.navBtn}>
-                {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />} Sound
+                {isMuted ? <FontAwesomeIcon icon={faVolumeXmark} style={{ fontSize: 16 }} /> : <FontAwesomeIcon icon={faVolumeHigh} style={{ fontSize: 16 }} />} Sound
               </button>
               <button onClick={() => setShowLogoutConfirm(true)} className={styles.navBtn}>
-                <LogOut size={16} /> Logout
+                <FontAwesomeIcon icon={faRightFromBracket} style={{ fontSize: 16 }} /> Logout
               </button>
             </div>
           </div>
@@ -865,17 +866,17 @@ export default function Game() {
             
             <div style={{ textAlign: 'left', lineHeight: '1.6', fontSize: '1.1rem', color: '#e2e8f0', marginBottom: '2rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
-                <Activity color="#4ade80" /> <h3 style={{ color: '#4ade80', margin: 0 }}>The Basics</h3>
+                <FontAwesomeIcon icon={faChartLine} style={{ fontSize: 24, color: "#4ade80" }} /> <h3 style={{ color: '#4ade80', margin: 0 }}>The Basics</h3>
               </div>
               <p style={{ marginBottom: '1.5rem' }}>Words will fall from the top of the screen. Type them correctly before they hit the bottom! You have exactly <strong>3 lives</strong>.</p>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
-                <Flame color="#fcd34d" /> <h3 style={{ color: '#fcd34d', margin: 0 }}>Combos</h3>
+                <FontAwesomeIcon icon={faFire} style={{ fontSize: 24, color: "#fcd34d" }} /> <h3 style={{ color: '#fcd34d', margin: 0 }}>Combos</h3>
               </div>
               <p style={{ marginBottom: '1.5rem' }}>Typing words flawlessly builds your combo multiplier. Making a mistake breaks the combo!</p>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
-                <Swords color="#f87171" /> <h3 style={{ color: '#f87171', margin: 0 }}>Multiplayer Garbage</h3>
+                <FontAwesomeIcon icon={faBolt} style={{ fontSize: 24, color: "#f87171" }} /> <h3 style={{ color: '#f87171', margin: 0 }}>Multiplayer Garbage</h3>
               </div>
               <p style={{ marginBottom: '1.5rem' }}>In multiplayer matches, every time you reach a <strong>Combo of 5</strong>, you instantly send a wave of fast "Garbage Words" to your opponent's screen. Overwhelm them to win!</p>
             </div>
@@ -1092,8 +1093,8 @@ export default function Game() {
         <div className={styles.overlay} style={{ zIndex: 100 }}>
           <div className={styles.multiplayerBox} style={{ minWidth: '400px' }}>
             <h2 className={styles.title} style={{ fontSize: '3rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
-              {isSinglePlayer ? <><Activity size={40} /> Match Complete!</> : (
-                 <><Trophy size={40} /> Match Results</>
+              {isSinglePlayer ? <><FontAwesomeIcon icon={faChartLine} style={{ fontSize: 40 }} /> Match Complete!</> : (
+                 <><FontAwesomeIcon icon={faTrophy} style={{ fontSize: 40 }} /> Match Results</>
               )}
             </h2>
             
@@ -1129,7 +1130,7 @@ export default function Game() {
                       {finalLeaderboard.map((row, idx) => (
                         <tr key={idx} style={{ background: row.username === username ? 'rgba(59, 130, 246, 0.2)' : (idx % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'transparent') }}>
                           <td style={{ padding: '10px', fontWeight: 'bold', color: row.rank === 1 ? '#fcd34d' : '#fff' }}>
-                            {row.rank === 1 && <Trophy size={14} style={{ marginRight: '5px' }} />}
+                            {row.rank === 1 && <FontAwesomeIcon icon={faTrophy} style={{ fontSize: 14, marginRight: "5px" }} />}
                             {row.rank}
                           </td>
                           <td style={{ padding: '10px', textDecoration: !row.survived ? 'line-through' : 'none' }}>{row.username}</td>

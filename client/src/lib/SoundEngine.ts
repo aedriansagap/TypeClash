@@ -9,6 +9,9 @@ export class SoundEngine {
   private isPlayingMenuBgm: boolean = false;
   private menuBgmInterval: any = null;
 
+  // Effects
+  private convolver: ConvolverNode | null = null;
+
   constructor() {
     // AudioContext will be initialized on first user interaction
   }
@@ -18,9 +21,31 @@ export class SoundEngine {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       this.ctx = new AudioContextClass();
+      this.setupReverb();
     } catch (e) {
       console.warn('Web Audio API not supported in this browser.');
     }
+  }
+
+  private setupReverb() {
+    if (!this.ctx) return;
+    const length = this.ctx.sampleRate * 2.0; // 2 seconds
+    const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+    for (let i = 0; i < length; i++) {
+      const decay = Math.exp(-i / (this.ctx.sampleRate * 0.5));
+      left[i] = (Math.random() * 2 - 1) * decay;
+      right[i] = (Math.random() * 2 - 1) * decay;
+    }
+    this.convolver = this.ctx.createConvolver();
+    this.convolver.buffer = impulse;
+    
+    // Create a global reverb bus
+    const reverbGain = this.ctx.createGain();
+    reverbGain.gain.value = 0.3; // Reverb mix
+    this.convolver.connect(reverbGain);
+    reverbGain.connect(this.ctx.destination);
   }
 
   public async resume() {
@@ -29,11 +54,25 @@ export class SoundEngine {
     }
   }
 
-  private playTone(frequency: number, type: OscillatorType, duration: number, volume: number = 0.1, pitchSweep?: number) {
+  private playTone(
+    frequency: number, 
+    type: OscillatorType, 
+    duration: number, 
+    volume: number = 0.1, 
+    pitchSweep?: number, 
+    pan: number = 0,
+    useReverb: boolean = false
+  ) {
     if (!this.ctx || this.isMuted) return;
 
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
+    
+    let panner: StereoPannerNode | null = null;
+    if (this.ctx.createStereoPanner) {
+      panner = this.ctx.createStereoPanner();
+      panner.pan.value = pan;
+    }
 
     osc.type = type;
     osc.frequency.setValueAtTime(frequency, this.ctx.currentTime);
@@ -42,59 +81,68 @@ export class SoundEngine {
       osc.frequency.exponentialRampToValueAtTime(pitchSweep, this.ctx.currentTime + duration);
     }
 
-    // Envelope
-    gain.gain.setValueAtTime(0, this.ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(volume, this.ctx.currentTime + duration * 0.1); // Attack
-    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration); // Decay
+    // Improved ADSR Envelope
+    const now = this.ctx.currentTime;
+    const attack = duration * 0.1;
+    const release = duration * 0.4;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + attack); 
+    gain.gain.setValueAtTime(volume, now + duration - release);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration); 
 
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    
+    const outputNode = panner ? panner : this.ctx.destination;
+    if (panner) gain.connect(panner);
+    
+    if (useReverb && this.convolver) {
+      if (panner) panner.connect(this.convolver);
+      else gain.connect(this.convolver);
+    }
+    
+    if (panner) panner.connect(this.ctx.destination);
+    else gain.connect(this.ctx.destination);
 
-    osc.start(this.ctx.currentTime);
-    osc.stop(this.ctx.currentTime + duration);
+    osc.start(now);
+    osc.stop(now + duration);
   }
 
   public playKeystroke(correct: boolean, combo: number) {
     if (correct) {
-      // Pitch goes up slightly with combo! (max +500hz)
       const baseFreq = 400;
       const comboMod = Math.min(500, combo * 10);
-      this.playTone(baseFreq + comboMod, 'sine', 0.1, 0.2);
+      const pan = (Math.random() - 0.5) * 0.5; // Slight random pan
+      this.playTone(baseFreq + comboMod, 'sine', 0.1, 0.2, undefined, pan);
     } else {
-      // Dissonant low buzz
-      this.playTone(150, 'sawtooth', 0.2, 0.3, 100);
+      this.playTone(150, 'sawtooth', 0.2, 0.3, 100, 0, true);
     }
   }
 
   public playWordComplete() {
-    // Pleasant chime
     this.playTone(800, 'sine', 0.15, 0.2);
-    setTimeout(() => this.playTone(1200, 'sine', 0.3, 0.2), 100);
+    setTimeout(() => this.playTone(1200, 'sine', 0.3, 0.2, undefined, 0, true), 100);
   }
 
   public playGarbageSent() {
-    // Whoosh / Laser
-    this.playTone(1200, 'square', 0.4, 0.2, 200);
+    const pan = (Math.random() - 0.5) * 1.5; // Wider random pan for chaos
+    this.playTone(1200, 'square', 0.4, 0.2, 200, pan, true);
   }
 
   public playLifeLost() {
-    // Descending harsh tone
-    this.playTone(300, 'sawtooth', 0.8, 0.4, 50);
+    this.playTone(300, 'sawtooth', 0.8, 0.4, 50, 0, true);
   }
 
   public playWin() {
-    // Major arpeggio
-    const freqs = [440, 554.37, 659.25, 880]; // A4, C#5, E5, A5
+    const freqs = [440, 554.37, 659.25, 880];
     freqs.forEach((freq, i) => {
-      setTimeout(() => this.playTone(freq, 'sine', 0.5, 0.3), i * 150);
+      setTimeout(() => this.playTone(freq, 'sine', 0.5, 0.3, undefined, 0, true), i * 150);
     });
   }
 
   public playLose() {
-    // Minor descending arpeggio
-    const freqs = [880, 659.25, 523.25, 440]; // A5, E5, C5, A4
+    const freqs = [880, 659.25, 523.25, 440];
     freqs.forEach((freq, i) => {
-      setTimeout(() => this.playTone(freq, 'sawtooth', 0.5, 0.3, 200), i * 200);
+      setTimeout(() => this.playTone(freq, 'sawtooth', 0.5, 0.3, 200, 0, true), i * 200);
     });
   }
 
@@ -108,13 +156,12 @@ export class SoundEngine {
 
   public playComboMilestone(combo: number) {
     const baseFreq = 440 + (combo * 5);
-    this.playTone(baseFreq, 'sine', 0.2, 0.2);
-    setTimeout(() => this.playTone(baseFreq * 1.5, 'sine', 0.4, 0.2), 150);
+    this.playTone(baseFreq, 'sine', 0.2, 0.2, undefined, -0.5, true);
+    setTimeout(() => this.playTone(baseFreq * 1.5, 'sine', 0.4, 0.2, undefined, 0.5, true), 150);
   }
 
   public playDifficultyUp() {
-    // Energetic sweep up
-    this.playTone(400, 'sawtooth', 0.5, 0.2, 800);
+    this.playTone(400, 'sawtooth', 0.5, 0.2, 800, 0, true);
   }
 
   // --- Procedural BGM ---
@@ -125,15 +172,22 @@ export class SoundEngine {
     
     this.bgmGain = this.ctx.createGain();
     this.bgmGain.gain.setValueAtTime(0.05, this.ctx.currentTime);
-    this.bgmGain.connect(this.ctx.destination);
+    
+    // Add a slight lowpass filter to BGM
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1000;
+    
+    this.bgmGain.connect(filter);
+    filter.connect(this.ctx.destination);
 
     const osc1 = this.ctx.createOscillator();
     osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(65.41, this.ctx.currentTime); // C2
+    osc1.frequency.setValueAtTime(65.41, this.ctx.currentTime);
 
     const osc2 = this.ctx.createOscillator();
     osc2.type = 'square';
-    osc2.frequency.setValueAtTime(65.8, this.ctx.currentTime); // Slight detune
+    osc2.frequency.setValueAtTime(65.8, this.ctx.currentTime);
 
     osc1.connect(this.bgmGain);
     osc2.connect(this.bgmGain);
@@ -165,21 +219,17 @@ export class SoundEngine {
     
     this.isPlayingMenuBgm = true;
 
-    // A simple chill ambient loop (C maj 7 arpeggio)
-    const notes = [261.63, 329.63, 392.00, 493.88]; // C4, E4, G4, B4
+    const notes = [261.63, 329.63, 392.00, 493.88];
     let noteIndex = 0;
 
     const playNextNote = () => {
       if (!this.isPlayingMenuBgm || !this.ctx || this.isMuted) return;
-      this.playTone(notes[noteIndex], 'sine', 2.0, 0.05); // Soft, long sine wave
+      this.playTone(notes[noteIndex], 'sine', 2.0, 0.05, undefined, (Math.random()-0.5), true);
       noteIndex = (noteIndex + 1) % notes.length;
     };
 
-    // Play first note immediately
     playNextNote();
-    
-    // Schedule subsequent notes
-    this.menuBgmInterval = setInterval(playNextNote, 1000); // 1 note per second
+    this.menuBgmInterval = setInterval(playNextNote, 1000);
   }
 
   public stopBGM() {
@@ -209,8 +259,6 @@ export class SoundEngine {
     this.isMuted = muted;
     if (muted) {
       this.stopBGM();
-    } else {
-      // It will be restarted by the component based on game state
     }
   }
 }

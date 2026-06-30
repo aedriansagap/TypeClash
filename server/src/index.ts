@@ -24,6 +24,8 @@ app.get('/', (req, res) => {
   res.status(200).send('TypeClash Server is running smoothly!');
 });
 
+const isValidUsername = (username: string) => /^[a-zA-Z0-9_]{3,20}$/.test(username);
+
 // --- AUTHENTICATION API --- //
 
 const generateToken = (userId: string, username: string, isGuest: boolean) => {
@@ -34,6 +36,7 @@ const generateToken = (userId: string, username: string, isGuest: boolean) => {
 app.post('/api/auth/guest', async (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username required' });
+  if (!isValidUsername(username)) return res.status(400).json({ error: 'Username must be 3-20 characters long and contain only letters, numbers, and underscores.' });
   try {
     let user = await User.findOne({ username });
     if (!user) {
@@ -54,6 +57,8 @@ app.post('/api/auth/guest', async (req, res) => {
 app.post('/api/auth/register', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  if (!isValidUsername(username)) return res.status(400).json({ error: 'Username must be 3-20 characters long and contain only letters, numbers, and underscores.' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
   
   try {
     let user = await User.findOne({ username });
@@ -87,6 +92,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  if (!isValidUsername(username)) return res.status(400).json({ error: 'Invalid username format.' });
   
   try {
     const user = await User.findOne({ username });
@@ -354,7 +360,10 @@ io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
   socket.on('join_room', (data: { roomId: string, duration?: number, userId?: string, username?: string, mods?: any }) => {
-    const { roomId, duration = 60, userId, username, mods } = data;
+    let { roomId, duration = 60, userId, username, mods } = data;
+    if (typeof roomId !== 'string' || roomId.length > 10) return;
+    if (username && !isValidUsername(username)) username = 'Guest';
+    
     socket.join(roomId);
     
     players.set(socket.id, { 
@@ -427,7 +436,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('find_match', (data: { duration?: number, userId?: string, username?: string, mods?: any }) => {
-    const { duration = 60, userId, username, mods } = data;
+    let { duration = 60, userId, username, mods } = data;
+    if (username && !isValidUsername(username)) username = 'Guest';
     const modString = JSON.stringify(mods || {});
     
     if (!matchmakingQueue.some(p => p.socketId === socket.id)) {
