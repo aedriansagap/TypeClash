@@ -41,6 +41,7 @@ export default function Game() {
     totalKeystrokes: 0,
     correctKeystrokes: 0,
     garbageSent: 0,
+    activePowerUp: null
   });
   
   // UI State
