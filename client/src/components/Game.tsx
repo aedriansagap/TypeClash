@@ -58,6 +58,10 @@ export default function Game() {
   const [playerMetrics, setPlayerMetrics] = useState<{ wpm: number, accuracy: number, garbageSent: number } | null>(null);
   const [matchHistory, setMatchHistory] = useState<{time: number, p1: number, opponent?: number}[]>([]);
   
+  const [isDaily, setIsDaily] = useState(false);
+  const [dailySeed, setDailySeed] = useState<string | null>(null);
+  const [activePowerUp, setActivePowerUp] = useState<string | null>(null);
+
   // Custom Rules
   const [matchDuration, setMatchDuration] = useState<number>(60); // in seconds
   
@@ -159,6 +163,13 @@ export default function Game() {
       engineRef.current = new GameEngine(canvasRef.current, THEMES[customization.theme], customization.fontFamily, soundEngineRef.current);
       engineRef.current.onStateChange = (state) => {
         setGameState(state);
+        setActivePowerUp(state.activePowerUp);
+      };
+      
+      engineRef.current.onPowerUpUsed = (type) => {
+        if (socketRef.current && !isSinglePlayer) {
+          socketRef.current.emit('use_powerup', type);
+        }
       };
       
       engineRef.current.onGarbageGenerated = (amount) => {
@@ -246,6 +257,12 @@ export default function Game() {
         }
       });
 
+      socketRef.current.on('receive_powerup', (type: string) => {
+        if (engineRef.current) {
+          engineRef.current.receivePowerUp(type);
+        }
+      });
+
       socketRef.current.on('opponent_update', (data: { id: string, metrics: any }) => {
         setOpponents(prev => {
           if (!prev[data.id]) return prev;
@@ -306,11 +323,15 @@ export default function Game() {
           setPlayerMetrics(metrics);
           if (userId) {
             let modeStr = 'vanilla';
-            const modArr = [];
-            if (mods.includeNumbers) modArr.push('numbers');
-            if (mods.includePunctuation) modArr.push('punctuation');
-            if (mods.longestWords) modArr.push('long_words');
-            if (modArr.length > 0) modeStr = modArr.join('_');
+            if (isDaily && dailySeed) {
+              modeStr = `daily_${dailySeed}`;
+            } else {
+              const modArr = [];
+              if (mods.includeNumbers) modArr.push('numbers');
+              if (mods.includePunctuation) modArr.push('punctuation');
+              if (mods.longestWords) modArr.push('long_words');
+              if (modArr.length > 0) modeStr = modArr.join('_');
+            }
 
             fetch(`${SERVER_URL}/api/score`, {
               method: 'POST',
@@ -483,12 +504,35 @@ export default function Game() {
   };
 
   const playSinglePlayer = () => {
+    setIsDaily(false);
+    setDailySeed(null);
     setIsSinglePlayer(true);
     setIsPlaying(true);
     setPlayerMetrics(null);
     setMatchHistory([]);
         setGameState(prev => ({...prev, isGameOver: false}));
     engineRef.current?.start(Math.random().toString(), matchDuration * 1000, mods);
+  };
+
+  const playDailyRun = async () => {
+    try {
+      const res = await fetch(`${SERVER_URL}/api/daily`);
+      const data = await res.json();
+      setDailySeed(data.seed);
+      setIsDaily(true);
+      setMatchDuration(60);
+      setMods({ includeNumbers: true, includePunctuation: true, longestWords: false });
+      
+      setIsSinglePlayer(true);
+      setIsPlaying(true);
+      setPlayerMetrics(null);
+      setMatchHistory([]);
+      setGameState(prev => ({...prev, isGameOver: false}));
+      
+      engineRef.current?.start(data.seed, 60000, { includeNumbers: true, includePunctuation: true, longestWords: false });
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const findMatch = () => {
@@ -541,7 +585,22 @@ export default function Game() {
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: -100, opacity: 0 }}
           className={styles.hud}
+          style={{ position: 'relative' }}
         >
+          {activePowerUp && (
+            <div className={styles.statPanel} style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', borderColor: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', boxShadow: '0 0 15px rgba(251, 191, 36, 0.2)' }}>
+              <div className={styles.statItem}>
+                <div className={styles.statHeader} style={{ color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <FontAwesomeIcon icon={faFire} className={styles.iconPulse} />
+                  Power-Up Ready
+                </div>
+                <div className={styles.statValue} style={{ fontSize: '1.2rem', color: '#fbbf24' }}>
+                  {activePowerUp.toUpperCase()} [ENTER]
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className={styles.statPanel}>
             <div className={styles.statItem}>
               <div className={styles.statHeader}><FontAwesomeIcon icon={faBullseye} style={{ fontSize: 16 }} /> Score</div>
@@ -787,10 +846,11 @@ export default function Game() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
-                <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px' }} onClick={playSinglePlayer}>Single Player</button>
-                <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #1e40af, #1e3a8a)' }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Leaderboard</button>
+              <div style={{ display: 'flex', gap: '1rem', width: '100%', marginBottom: '1rem' }}>
+                <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px' }} onClick={playSinglePlayer}>Play Solo</button>
+                <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)' }} onClick={playDailyRun}>Daily Run</button>
               </div>
+              <button className={styles.btn} style={{ width: '100%', marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #1e40af, #1e3a8a)' }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Leaderboard</button>
             </div>
           </div>
         </div>

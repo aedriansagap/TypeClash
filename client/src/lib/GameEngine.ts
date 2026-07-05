@@ -13,6 +13,7 @@ export interface GameState {
   totalKeystrokes: number;
   correctKeystrokes: number;
   garbageSent: number;
+  activePowerUp: 'nuke' | 'freeze' | 'scramble' | null;
 }
 
 interface WordEntity {
@@ -23,6 +24,8 @@ interface WordEntity {
   y: number;
   speed: number;
   isJunk: boolean;
+  isGolden: boolean;
+  hasTypo: boolean;
   color: string;
 }
 
@@ -64,6 +67,7 @@ export class GameEngine {
   private targetedWordId: string | null = null;
   private particles: ParticleEntity[] = [];
   private shakeIntensity: number = 0;
+  private frozenTimer: number = 0;
   
   // Difficulty Scaling
   private timeElapsed: number = 0;
@@ -80,6 +84,7 @@ export class GameEngine {
   // Callbacks
   public onStateChange: (state: GameState & { maxCombo: number }) => void = () => {};
   public onGarbageGenerated: (amount: number) => void = () => {};
+  public onPowerUpUsed: (type: string) => void = () => {};
   public onGameOverCallback: (score: number, maxCombo: number, survived: boolean, metrics: { wpm: number, accuracy: number, garbageSent: number }) => void = () => {};
   public onMetricsUpdate: (metrics: { wpm: number, accuracy: number, garbageSent: number, lives: number, score: number }) => void = () => {};
 
@@ -115,7 +120,7 @@ export class GameEngine {
     this.state = { 
       lives: 3, combo: 0, maxCombo: 0, score: 0, isGameOver: false, 
       timeLeft: Math.ceil(durationMs/1000), survived: false,
-      totalKeystrokes: 0, correctKeystrokes: 0, garbageSent: 0 
+      totalKeystrokes: 0, correctKeystrokes: 0, garbageSent: 0, activePowerUp: null 
     };
     this.words = [];
     this.targetedWordId = null;
@@ -124,6 +129,7 @@ export class GameEngine {
     this.lastProgressScoreLevel = 0;
     this.particles = [];
     this.shakeIntensity = 0;
+    this.frozenTimer = 0;
     this.lastTime = performance.now();
     this.notifyState();
     this.sound.startGameplayBGM();
@@ -216,28 +222,33 @@ export class GameEngine {
     this.currentSpawnInterval = Math.max(400, this.baseSpawnInterval / difficultyMultiplier);
     const currentSpeed = this.baseSpeed * difficultyMultiplier;
 
-    // Spawning logic
-    this.spawnTimer += deltaTime;
-    if (this.spawnTimer >= this.currentSpawnInterval) {
-      this.spawnTimer = 0;
-      this.spawnWord(currentSpeed, progressScore);
-    }
+    // Movement and Spawning is halted if frozen
+    if (this.frozenTimer > 0) {
+      this.frozenTimer -= deltaTime;
+    } else {
+      // Spawning logic
+      this.spawnTimer += deltaTime;
+      if (this.spawnTimer >= this.currentSpawnInterval) {
+        this.spawnTimer = 0;
+        this.spawnWord(currentSpeed, progressScore);
+      }
 
-    // Move words and check collisions
-    const canvasHeight = this.canvas.getBoundingClientRect().height;
-    
-    for (let i = this.words.length - 1; i >= 0; i--) {
-      const word = this.words[i];
-      word.y += word.speed * deltaTime;
+      // Move words and check collisions
+      const canvasHeight = this.canvas.getBoundingClientRect().height;
+      
+      for (let i = this.words.length - 1; i >= 0; i--) {
+        const word = this.words[i];
+        word.y += word.speed * deltaTime;
 
-      // Word hits the bottom
-      if (word.y > canvasHeight) {
-        this.words.splice(i, 1);
-        if (this.targetedWordId === word.id) {
-          this.targetedWordId = null;
+        // Word hits the bottom
+        if (word.y > canvasHeight) {
+          this.words.splice(i, 1);
+          if (this.targetedWordId === word.id) {
+            this.targetedWordId = null;
+          }
+          this.sound.playLifeLost();
+          this.loseLife();
         }
-        this.sound.playLifeLost();
-        this.loseLife();
       }
     }
 
@@ -274,6 +285,11 @@ export class GameEngine {
     this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
+    
+    if (this.frozenTimer > 0) {
+      this.ctx.fillStyle = 'rgba(147, 197, 253, 0.1)';
+      this.ctx.fillRect(0, 0, rect.width, rect.height);
+    }
 
     for (const word of this.words) {
       const isTargeted = this.targetedWordId === word.id;
@@ -293,8 +309,15 @@ export class GameEngine {
       this.ctx.fillText(typedText, startX + typedWidth / 2, word.y);
       
       // Remaining characters
-      this.ctx.fillStyle = isTargeted ? this.theme.wordRemaining : (word.isJunk ? this.theme.wordJunk : '#9ca3af');
+      this.ctx.fillStyle = isTargeted ? this.theme.wordRemaining : (word.isJunk ? this.theme.wordJunk : (word.isGolden ? '#fbbf24' : '#9ca3af'));
+      if (word.isGolden && !word.hasTypo) {
+        this.ctx.shadowBlur = 10;
+        this.ctx.shadowColor = '#fbbf24';
+      } else {
+        this.ctx.shadowBlur = 0;
+      }
       this.ctx.fillText(remainingText, startX + typedWidth + remainingWidth / 2, word.y);
+      this.ctx.shadowBlur = 0;
     }
 
     // Draw particles
@@ -319,6 +342,11 @@ export class GameEngine {
     
     // Ignore meta keys
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    
+    if (e.key === 'Enter') {
+      this.usePowerUp();
+      return;
+    }
     
     const key = e.key;
     if (key.length !== 1) return; // Only process printable single characters
@@ -347,6 +375,8 @@ export class GameEngine {
         }
       } else {
         // Wrong hit - break combo
+        target.hasTypo = true;
+        target.isGolden = false;
         this.sound.playKeystroke(false, 0);
         this.breakCombo();
       }
@@ -404,15 +434,22 @@ export class GameEngine {
       y: -30, // Start above screen
       speed,
       isJunk: false,
+      isGolden: this.random() < 0.05,
+      hasTypo: false,
       color: '#ffffff'
     };
 
     this.words.push(word);
   }
 
-  private destroyWord(id: string) {
+  private destroyWord(id: string, normalScore: boolean = true) {
     const word = this.words.find(w => w.id === id);
     if (word) {
+      if (word.isGolden && !word.hasTypo && normalScore) {
+        const types: Array<'nuke' | 'freeze' | 'scramble'> = ['nuke', 'freeze', 'scramble'];
+        this.state.activePowerUp = types[Math.floor(this.random() * types.length)];
+        this.sound.playPowerUpGained?.();
+      }
       for (let i = 0; i < 15; i++) {
         this.particles.push({
           x: word.x + (this.random() - 0.5) * 40,
@@ -429,24 +466,26 @@ export class GameEngine {
     this.targetedWordId = null;
     this.sound.playWordComplete();
     
-    // Combo & Score logic
-    this.state.combo += 1;
-    if (this.state.combo > this.state.maxCombo) {
-      this.state.maxCombo = this.state.combo;
-    }
-    this.state.score += 10 * this.state.combo;
-    
-    if (this.state.combo > 0 && this.state.combo % 10 === 0) {
-      this.sound.playComboMilestone(this.state.combo);
-    }
-    
-    // Check garbage mechanics (e.g., every 5 combo sends 1 garbage)
-    if (this.state.combo > 0 && this.state.combo % 5 === 0) {
-      this.state.score += 50; // Bonus score
-      this.state.garbageSent += 1;
-      // Send garbage (emit to network)
-      this.sound.playGarbageSent();
-      this.onGarbageGenerated(1); 
+    if (normalScore) {
+      // Combo & Score logic
+      this.state.combo += 1;
+      if (this.state.combo > this.state.maxCombo) {
+        this.state.maxCombo = this.state.combo;
+      }
+      this.state.score += 10 * this.state.combo;
+      
+      if (this.state.combo > 0 && this.state.combo % 10 === 0) {
+        this.sound.playComboMilestone(this.state.combo);
+      }
+      
+      // Check garbage mechanics (e.g., every 5 combo sends 1 garbage)
+      if (this.state.combo > 0 && this.state.combo % 5 === 0) {
+        this.state.score += 50; // Bonus score
+        this.state.garbageSent += 1;
+        // Send garbage (emit to network)
+        this.sound.playGarbageSent();
+        this.onGarbageGenerated(1); 
+      }
     }
     
     this.notifyState();
@@ -505,7 +544,41 @@ export class GameEngine {
         y: this.random() * -100 - 30, // Stagger spawning above screen
         speed: this.baseSpeed * 2, // Sped up
         isJunk: true,
+        isGolden: false,
+        hasTypo: false,
         color: '#f87171'
+      });
+    }
+  }
+
+  public usePowerUp() {
+    if (!this.state.activePowerUp) return;
+    const type = this.state.activePowerUp;
+    this.state.activePowerUp = null;
+    this.sound.playPowerUpUsed?.();
+    
+    if (type === 'nuke') {
+      const bottomWords = [...this.words].sort((a, b) => b.y - a.y).slice(0, 3);
+      bottomWords.forEach(w => this.destroyWord(w.id, false));
+    } else {
+      this.onPowerUpUsed(type);
+    }
+    this.notifyState();
+  }
+
+  public receivePowerUp(type: string) {
+    if (type === 'freeze') {
+      this.frozenTimer = 3000;
+    } else if (type === 'scramble') {
+      this.words.forEach(w => {
+        if (!w.isJunk) {
+          const chars = w.text.substring(w.typed.length).split('');
+          for (let i = chars.length - 1; i > 0; i--) {
+            const j = Math.floor(this.random() * (i + 1));
+            [chars[i], chars[j]] = [chars[j], chars[i]];
+          }
+          w.text = w.typed + chars.join('');
+        }
       });
     }
   }

@@ -118,6 +118,11 @@ app.post('/api/auth/login', async (req, res) => {
 
 // --- LEADERBOARD API --- //
 
+app.get('/api/daily', (req, res) => {
+  const dateStr = new Date().toISOString().split('T')[0];
+  res.json({ seed: dateStr });
+});
+
 // Global Leaderboard (Best Score Per Player)
 app.get('/api/leaderboard/:duration/:mode', async (req, res) => {
   try {
@@ -248,6 +253,10 @@ app.post('/api/score', async (req, res) => {
   const { userId, score, maxCombo, matchDuration, survived, mode, isPvP } = req.body;
   if (!userId || score === undefined) return res.status(400).json({ error: 'Missing data' });
   try {
+    if (mode && mode.startsWith('daily_')) {
+      const existing = await Score.findOne({ userId, mode });
+      if (existing) return res.status(403).json({ error: 'You have already played the Daily Challenge today!' });
+    }
     const newScore = new Score({
       userId,
       score,
@@ -461,6 +470,19 @@ io.on('connection', (socket) => {
     if (aliveOpponents.length > 0) {
       const targetId = aliveOpponents[Math.floor(Math.random() * aliveOpponents.length)];
       io.to(targetId).emit('receive_garbage', amount);
+    }
+  });
+
+  socket.on('use_powerup', (type: string) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+    const roomData = rooms.get(player.roomId);
+    if (!roomData) return;
+    
+    const aliveOpponents = roomData.alivePlayers.filter(id => id !== socket.id);
+    if (aliveOpponents.length > 0) {
+      const targetId = aliveOpponents[Math.floor(Math.random() * aliveOpponents.length)];
+      io.to(targetId).emit('receive_powerup', type);
     }
   });
 

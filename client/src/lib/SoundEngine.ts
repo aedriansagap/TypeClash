@@ -164,6 +164,16 @@ export class SoundEngine {
     this.playTone(400, 'sawtooth', 0.5, 0.2, 800, 0, true);
   }
 
+  public playPowerUpGained() {
+    this.playTone(600, 'sine', 0.1, 0.2, undefined, 0, true);
+    setTimeout(() => this.playTone(800, 'sine', 0.2, 0.2, undefined, 0, true), 100);
+    setTimeout(() => this.playTone(1000, 'sine', 0.3, 0.2, undefined, 0, true), 200);
+  }
+
+  public playPowerUpUsed() {
+    this.playTone(200, 'square', 0.5, 0.3, 50, 0, true);
+  }
+
   // --- Procedural BGM ---
 
   public startGameplayBGM() {
