@@ -56,6 +56,7 @@ export default function Game() {
   const [finalLeaderboard, setFinalLeaderboard] = useState<any[] | null>(null);
   const [waitingForResult, setWaitingForResult] = useState(false);
   const [playerMetrics, setPlayerMetrics] = useState<{ wpm: number, accuracy: number, garbageSent: number } | null>(null);
+  const [matchHistory, setMatchHistory] = useState<{time: number, p1: number, opponent?: number}[]>([]);
   
   // Custom Rules
   const [matchDuration, setMatchDuration] = useState<number>(60); // in seconds
@@ -170,6 +171,16 @@ export default function Game() {
         if (socketRef.current && !isSinglePlayer) {
           socketRef.current.emit('player_update', metrics);
         }
+        
+        let topOppWpm = 0;
+        setOpponents(ops => {
+          Object.values(ops).forEach(op => {
+             if (op.metrics && op.metrics.wpm > topOppWpm) topOppWpm = op.metrics.wpm;
+          });
+          return ops;
+        });
+        
+        setMatchHistory(prev => [...prev, { time: prev.length, p1: metrics.wpm, opponent: topOppWpm }]);
       };
     }
   }, [isSinglePlayer]);
@@ -207,6 +218,7 @@ export default function Game() {
         setIsPlaying(true);
                 setWaitingForResult(false);
         setPlayerMetrics(null);
+        setMatchHistory([]);
         setFinalLeaderboard(null);
         setMatchDuration(data.duration);
         if (data.roomId) setCurrentRoom(data.roomId);
@@ -326,6 +338,7 @@ export default function Game() {
         setIsSinglePlayer(true);
         setIsPlaying(true);
         setPlayerMetrics(null);
+        setMatchHistory([]);
                 setGameState(prev => ({...prev, isGameOver: false}));
         
         if (engineRef.current) {
@@ -473,6 +486,7 @@ export default function Game() {
     setIsSinglePlayer(true);
     setIsPlaying(true);
     setPlayerMetrics(null);
+    setMatchHistory([]);
         setGameState(prev => ({...prev, isGameOver: false}));
     engineRef.current?.start(Math.random().toString(), matchDuration * 1000, mods);
   };
@@ -496,6 +510,7 @@ export default function Game() {
             setWaitingForResult(false);
     setIsSearchingAuto(false);
     setPlayerMetrics(null);
+    setMatchHistory([]);
         setGameState(prev => ({...prev, isGameOver: false}));
     if (socketRef.current) {
         socketRef.current.disconnect();
@@ -1142,6 +1157,25 @@ export default function Game() {
                   </table>
                 </div>
               )
+            )}
+
+            {matchHistory.length > 0 && (
+              <div style={{ width: '100%', height: 250, marginBottom: '2rem', background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '8px' }}>
+                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', color: '#e2e8f0', textAlign: 'center' }}>Match Performance (WPM)</h3>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={matchHistory}>
+                    <XAxis dataKey="time" stroke="#9ca3af" fontSize={12} tickLine={false} tickFormatter={(val) => `${val}s`} />
+                    <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid #3b82f6', borderRadius: '8px' }}
+                      itemStyle={{ fontWeight: 'bold' }}
+                      labelStyle={{ color: '#9ca3af', marginBottom: '5px' }}
+                    />
+                    <Line type="monotone" dataKey="p1" name={username || 'You'} stroke="#4ade80" strokeWidth={3} dot={false} />
+                    {!isSinglePlayer && <Line type="monotone" dataKey="opponent" name="Top Opponent" stroke="#f87171" strokeWidth={3} dot={false} />}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             )}
 
             <button className={styles.btn} style={{ width: '100%' }} onClick={returnToMenu}>Back to Menu</button>

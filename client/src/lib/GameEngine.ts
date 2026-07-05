@@ -26,6 +26,17 @@ interface WordEntity {
   color: string;
 }
 
+interface ParticleEntity {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: string;
+}
+
+
 export class GameEngine {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -51,6 +62,8 @@ export class GameEngine {
   
   private words: WordEntity[] = [];
   private targetedWordId: string | null = null;
+  private particles: ParticleEntity[] = [];
+  private shakeIntensity: number = 0;
   
   // Difficulty Scaling
   private timeElapsed: number = 0;
@@ -109,6 +122,8 @@ export class GameEngine {
     this.timeElapsed = 0;
     this.spawnTimer = 0;
     this.lastProgressScoreLevel = 0;
+    this.particles = [];
+    this.shakeIntensity = 0;
     this.lastTime = performance.now();
     this.notifyState();
     this.sound.startGameplayBGM();
@@ -225,12 +240,35 @@ export class GameEngine {
         this.loseLife();
       }
     }
+
+    // Update game juice (shake and particles)
+    if (this.shakeIntensity > 0) {
+      this.shakeIntensity -= deltaTime * 0.03;
+      if (this.shakeIntensity < 0) this.shakeIntensity = 0;
+    }
+
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx * deltaTime;
+      p.y += p.vy * deltaTime;
+      p.life -= deltaTime;
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+      }
+    }
   }
 
   private render() {
     const rect = this.canvas.getBoundingClientRect();
     // Clear screen
     this.ctx.clearRect(0, 0, rect.width, rect.height);
+    
+    this.ctx.save();
+    if (this.shakeIntensity > 0) {
+      const dx = (this.random() - 0.5) * this.shakeIntensity;
+      const dy = (this.random() - 0.5) * this.shakeIntensity;
+      this.ctx.translate(dx, dy);
+    }
     
     // Draw words
     this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
@@ -258,6 +296,16 @@ export class GameEngine {
       this.ctx.fillStyle = isTargeted ? this.theme.wordRemaining : (word.isJunk ? this.theme.wordJunk : '#9ca3af');
       this.ctx.fillText(remainingText, startX + typedWidth + remainingWidth / 2, word.y);
     }
+
+    // Draw particles
+    for (const p of this.particles) {
+      const alpha = Math.max(0, p.life / p.maxLife);
+      this.ctx.globalAlpha = alpha;
+      this.ctx.fillStyle = p.color;
+      this.ctx.fillRect(p.x, p.y, 4, 4);
+    }
+    this.ctx.globalAlpha = 1;
+    this.ctx.restore();
   }
 
   public setCustomization(theme: ThemeConfig, fontFamily: string) {
@@ -363,6 +411,20 @@ export class GameEngine {
   }
 
   private destroyWord(id: string) {
+    const word = this.words.find(w => w.id === id);
+    if (word) {
+      for (let i = 0; i < 15; i++) {
+        this.particles.push({
+          x: word.x + (this.random() - 0.5) * 40,
+          y: word.y + (this.random() - 0.5) * 20,
+          vx: (this.random() - 0.5) * 0.2,
+          vy: (this.random() - 0.5) * 0.2,
+          life: 500 + this.random() * 500,
+          maxLife: 1000,
+          color: word.isJunk ? '#f87171' : this.theme.wordTyped
+        });
+      }
+    }
     this.words = this.words.filter(w => w.id !== id);
     this.targetedWordId = null;
     this.sound.playWordComplete();
@@ -396,6 +458,7 @@ export class GameEngine {
   }
 
   private loseLife() {
+    this.shakeIntensity = 20;
     this.state.lives -= 1;
     this.state.combo = 0;
     
@@ -424,6 +487,7 @@ export class GameEngine {
 
   // Public method to be called from multiplayer server to receive garbage
   public receiveGarbage(amount: number) {
+    this.shakeIntensity = 10;
     // Spawns junk words
     for(let i=0; i<amount; i++) {
       const rect = this.canvas.getBoundingClientRect();
