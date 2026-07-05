@@ -61,6 +61,7 @@ export class GameEngine {
     totalKeystrokes: 0,
     correctKeystrokes: 0,
     garbageSent: 0,
+    activePowerUp: null
   };
   
   private words: WordEntity[] = [];
