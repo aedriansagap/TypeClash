@@ -1,6 +1,8 @@
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   public isMuted: boolean = false;
+  public sfxVolume: number = 0.8;
+  public bgmVolume: number = 0.6;
   
   // BGM
   private bgmOscs: OscillatorNode[] = [];
@@ -65,6 +67,9 @@ export class SoundEngine {
   ) {
     if (!this.ctx || this.isMuted) return;
 
+    const finalVolume = volume * this.sfxVolume;
+    if (finalVolume <= 0.0001) return;
+
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     
@@ -81,13 +86,13 @@ export class SoundEngine {
       osc.frequency.exponentialRampToValueAtTime(pitchSweep, this.ctx.currentTime + duration);
     }
 
-    // Improved ADSR Envelope
+    // ADSR Envelope
     const now = this.ctx.currentTime;
     const attack = duration * 0.1;
     const release = duration * 0.4;
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(volume, now + attack); 
-    gain.gain.setValueAtTime(volume, now + duration - release);
+    gain.gain.linearRampToValueAtTime(finalVolume, now + attack); 
+    gain.gain.setValueAtTime(finalVolume, now + duration - release);
     gain.gain.exponentialRampToValueAtTime(0.001, now + duration); 
 
     osc.connect(gain);
@@ -111,7 +116,7 @@ export class SoundEngine {
     if (correct) {
       const baseFreq = 400;
       const comboMod = Math.min(500, combo * 10);
-      const pan = (Math.random() - 0.5) * 0.5; // Slight random pan
+      const pan = (Math.random() - 0.5) * 0.5;
       this.playTone(baseFreq + comboMod, 'sine', 0.1, 0.2, undefined, pan);
     } else {
       this.playTone(150, 'sawtooth', 0.2, 0.3, 100, 0, true);
@@ -124,7 +129,7 @@ export class SoundEngine {
   }
 
   public playGarbageSent() {
-    const pan = (Math.random() - 0.5) * 1.5; // Wider random pan for chaos
+    const pan = (Math.random() - 0.5) * 1.5;
     this.playTone(1200, 'square', 0.4, 0.2, 200, pan, true);
   }
 
@@ -181,7 +186,8 @@ export class SoundEngine {
     if (!this.ctx || this.isMuted) return;
     
     this.bgmGain = this.ctx.createGain();
-    this.bgmGain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+    const initVol = 0.05 * this.bgmVolume;
+    this.bgmGain.gain.setValueAtTime(initVol, this.ctx.currentTime);
     
     // Add a slight lowpass filter to BGM
     const filter = this.ctx.createBiquadFilter();
@@ -218,7 +224,7 @@ export class SoundEngine {
     this.bgmOscs[0].frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.5);
     this.bgmOscs[1].frequency.setTargetAtTime(targetFreq + 0.5, this.ctx.currentTime, 0.5);
     
-    const targetVol = 0.05 + Math.min(0.1, progressScore * 0.02);
+    const targetVol = (0.05 + Math.min(0.1, progressScore * 0.02)) * this.bgmVolume;
     this.bgmGain.gain.setTargetAtTime(targetVol, this.ctx.currentTime, 0.5);
   }
 
@@ -234,7 +240,8 @@ export class SoundEngine {
 
     const playNextNote = () => {
       if (!this.isPlayingMenuBgm || !this.ctx || this.isMuted) return;
-      this.playTone(notes[noteIndex], 'sine', 2.0, 0.05, undefined, (Math.random()-0.5), true);
+      const noteVol = 0.05 * this.bgmVolume;
+      this.playTone(notes[noteIndex], 'sine', 2.0, noteVol, undefined, (Math.random()-0.5), true);
       noteIndex = (noteIndex + 1) % notes.length;
     };
 
@@ -271,4 +278,16 @@ export class SoundEngine {
       this.stopBGM();
     }
   }
+
+  public setSfxVolume(volume: number) {
+    this.sfxVolume = Math.max(0, Math.min(1, volume));
+  }
+
+  public setBgmVolume(volume: number) {
+    this.bgmVolume = Math.max(0, Math.min(1, volume));
+    if (this.bgmGain && this.ctx) {
+      this.bgmGain.gain.setTargetAtTime(0.05 * this.bgmVolume, this.ctx.currentTime, 0.1);
+    }
+  }
 }
+

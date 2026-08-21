@@ -340,17 +340,19 @@ export class GameEngine {
 
   private handleKeyDown(e: KeyboardEvent) {
     if (this.state.isGameOver) return;
-    
-    // Ignore meta keys
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    this.processKeyInput(e.key);
+  }
+
+  public processKeyInput(key: string) {
+    if (this.state.isGameOver) return;
     
-    if (e.key === 'Enter') {
+    if (key === 'Enter') {
       this.usePowerUp();
       return;
     }
     
-    const key = e.key;
-    if (key.length !== 1) return; // Only process printable single characters
+    if (key.length !== 1) return; // Only process single printable characters
     
     this.state.totalKeystrokes += 1;
 
@@ -404,6 +406,7 @@ export class GameEngine {
       }
     }
   }
+
 
   private async spawnWord(speed: number, progressScore: number) {
     const rect = this.canvas.getBoundingClientRect();

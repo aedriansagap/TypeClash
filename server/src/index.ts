@@ -26,6 +26,87 @@ app.get('/', (req, res) => {
 
 const isValidUsername = (username: string) => /^[a-zA-Z0-9_]{3,20}$/.test(username);
 
+export const getTier = (rating: number = 1200): string => {
+  if (rating >= 2200) return 'Grandmaster';
+  if (rating >= 1900) return 'Diamond';
+  if (rating >= 1600) return 'Platinum';
+  if (rating >= 1300) return 'Gold';
+  if (rating >= 1000) return 'Silver';
+  return 'Bronze';
+};
+
+export interface EloParticipant {
+  id: string; // socketId
+  userId?: string;
+  rating: number;
+  rank: number;
+}
+
+export interface EloResult {
+  id: string;
+  userId?: string;
+  oldRating: number;
+  newRating: number;
+  change: number;
+  tier: string;
+}
+
+export const calculateMultiplayerElo = (participants: EloParticipant[], K: number = 32): Record<string, EloResult> => {
+  const n = participants.length;
+  const results: Record<string, EloResult> = {};
+
+  if (n <= 1) {
+    for (const p of participants) {
+      results[p.id] = {
+        id: p.id,
+        userId: p.userId,
+        oldRating: p.rating,
+        newRating: p.rating,
+        change: 0,
+        tier: getTier(p.rating)
+      };
+    }
+    return results;
+  }
+
+  for (let i = 0; i < n; i++) {
+    const pA = participants[i];
+    let totalChange = 0;
+
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const pB = participants[j];
+
+      // Expected score for A against B
+      const expectedA = 1 / (1 + Math.pow(10, (pB.rating - pA.rating) / 400));
+
+      // Actual score for A against B (1 if higher rank/lower rank number, 0.5 if tie, 0 if lost)
+      let actualA = 0.5;
+      if (pA.rank < pB.rank) {
+        actualA = 1.0;
+      } else if (pA.rank > pB.rank) {
+        actualA = 0.0;
+      }
+
+      totalChange += (actualA - expectedA);
+    }
+
+    const scaledChange = Math.round((K / (n - 1)) * totalChange);
+    const newRating = Math.max(100, pA.rating + scaledChange);
+
+    results[pA.id] = {
+      id: pA.id,
+      userId: pA.userId,
+      oldRating: pA.rating,
+      newRating,
+      change: scaledChange,
+      tier: getTier(newRating)
+    };
+  }
+
+  return results;
+};
+
 // --- AUTHENTICATION API --- //
 
 const generateToken = (userId: string, username: string, isGuest: boolean) => {
@@ -40,13 +121,24 @@ app.post('/api/auth/guest', async (req, res) => {
   try {
     let user = await User.findOne({ username });
     if (!user) {
-      user = new User({ username, isGuest: true });
+      user = new User({ username, isGuest: true, rating: 1200 });
       await user.save();
     } else if (!user.isGuest) {
       return res.status(403).json({ error: 'Username is registered. Please log in with a password.' });
     }
     const token = generateToken(user._id.toString(), user.username, true);
-    res.json({ id: user._id, username: user.username, token, isGuest: true, customization: user.customization });
+    const userRating = user.rating ?? 1200;
+    res.json({
+      id: user._id,
+      username: user.username,
+      token,
+      isGuest: true,
+      rating: userRating,
+      tier: getTier(userRating),
+      wins: user.wins ?? 0,
+      losses: user.losses ?? 0,
+      customization: user.customization
+    });
   } catch(e: any) {
     console.error('Auth error:', e);
     res.status(500).json({ error: `Database error: ${e.message}` });
@@ -71,17 +163,29 @@ app.post('/api/auth/register', async (req, res) => {
         // Upgrade guest account to permanent
         user.isGuest = false;
         user.passwordHash = passwordHash;
+        if (!user.rating) user.rating = 1200;
         await user.save();
       } else {
         return res.status(409).json({ error: 'Username already taken' });
       }
     } else {
-      user = new User({ username, passwordHash, isGuest: false });
+      user = new User({ username, passwordHash, isGuest: false, rating: 1200 });
       await user.save();
     }
 
     const token = generateToken(user._id.toString(), user.username, false);
-    res.json({ id: user._id, username: user.username, token, isGuest: false, customization: user.customization });
+    const userRating = user.rating ?? 1200;
+    res.json({
+      id: user._id,
+      username: user.username,
+      token,
+      isGuest: false,
+      rating: userRating,
+      tier: getTier(userRating),
+      wins: user.wins ?? 0,
+      losses: user.losses ?? 0,
+      customization: user.customization
+    });
   } catch (e: any) {
     console.error('Register error:', e);
     res.status(500).json({ error: `Database error: ${e.message}` });
@@ -109,18 +213,117 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const token = generateToken(user._id.toString(), user.username, false);
-    res.json({ id: user._id, username: user.username, token, isGuest: false, customization: user.customization });
+    const userRating = user.rating ?? 1200;
+    res.json({
+      id: user._id,
+      username: user.username,
+      token,
+      isGuest: false,
+      rating: userRating,
+      tier: getTier(userRating),
+      wins: user.wins ?? 0,
+      losses: user.losses ?? 0,
+      customization: user.customization
+    });
   } catch (e: any) {
     console.error('Login error:', e);
     res.status(500).json({ error: `Database error: ${e.message}` });
   }
 });
 
+// 4. OAuth SSO / Third-Party Provider Login (Google, GitHub)
+app.post('/api/auth/oauth', async (req, res) => {
+  const { provider, oauthId, email, username: requestedUsername, guestUserId } = req.body;
+  if (!oauthId || !email) {
+    return res.status(400).json({ error: 'OAuth ID and email are required' });
+  }
+
+  try {
+    let user: any = null;
+
+    if (guestUserId) {
+      user = await User.findById(guestUserId);
+      if (user && user.isGuest) {
+        user.isGuest = false;
+        const baseUsername = (requestedUsername || email.split('@')[0]).replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 18);
+        let uniqueUsername = baseUsername;
+        let counter = 1;
+        while (await User.findOne({ username: uniqueUsername, _id: { $ne: user._id } })) {
+          uniqueUsername = `${baseUsername.substring(0, 14)}_${counter++}`;
+        }
+        user.username = uniqueUsername;
+        await user.save();
+      }
+    }
+
+    if (!user) {
+      const emailPrefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 18);
+      user = await User.findOne({ username: emailPrefix });
+    }
+
+    if (!user) {
+      const baseUsername = (requestedUsername || email.split('@')[0]).replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 18);
+      let uniqueUsername = baseUsername;
+      let counter = 1;
+      while (await User.findOne({ username: uniqueUsername })) {
+        uniqueUsername = `${baseUsername.substring(0, 14)}_${counter++}`;
+      }
+      user = new User({
+        username: uniqueUsername,
+        isGuest: false,
+        rating: 1200
+      });
+      await user.save();
+    }
+
+    const token = generateToken(user._id.toString(), user.username, false);
+    const userRating = user.rating ?? 1200;
+    res.json({
+      id: user._id,
+      username: user.username,
+      token,
+      isGuest: false,
+      rating: userRating,
+      tier: getTier(userRating),
+      wins: user.wins ?? 0,
+      losses: user.losses ?? 0,
+      customization: user.customization
+    });
+  } catch (e: any) {
+    console.error('OAuth error:', e);
+    res.status(500).json({ error: `Database error: ${e.message}` });
+  }
+});
+
+
 // --- LEADERBOARD API --- //
 
 app.get('/api/daily', (req, res) => {
   const dateStr = new Date().toISOString().split('T')[0];
   res.json({ seed: dateStr });
+});
+
+// Ranked Global Leaderboard (Top Players by Elo)
+app.get('/api/leaderboard/ranked', async (req, res) => {
+  try {
+    const topUsers = await User.find({ isGuest: false })
+      .sort({ rating: -1 })
+      .limit(50)
+      .select('username rating wins losses createdAt');
+
+    res.json(topUsers.map((u, index) => ({
+      rank: index + 1,
+      username: u.username,
+      rating: u.rating ?? 1200,
+      tier: getTier(u.rating ?? 1200),
+      wins: u.wins ?? 0,
+      losses: u.losses ?? 0,
+      joinedDate: u.createdAt
+    })));
+  } catch (e: any) {
+    console.error('Ranked leaderboard error:', e);
+    res.status(500).json({ error: `Database error: ${e.message}` });
+  }
 });
 
 // Global Leaderboard (Best Score Per Player)
@@ -158,6 +361,8 @@ app.get('/api/leaderboard/:duration/:mode', async (req, res) => {
 
     res.json(topScores.map(s => ({
       username: s.user.username,
+      rating: s.user.rating ?? 1200,
+      tier: getTier(s.user.rating ?? 1200),
       score: s.score,
       maxCombo: s.maxCombo,
       survived: s.survived,
@@ -181,6 +386,7 @@ app.get('/api/leaderboard/personal/:userId/:duration/:mode', async (req, res) =>
       score: s.score,
       maxCombo: s.maxCombo,
       survived: s.survived,
+      eloChange: s.eloChange,
       date: s.createdAt
     })));
   } catch(e: any) {
@@ -218,8 +424,15 @@ app.get('/api/profile/:userId', async (req, res) => {
       gamesSurvived: 0
     };
 
+    const userRating = user.rating ?? 1200;
+
     res.json({
       username: user.username,
+      rating: userRating,
+      tier: getTier(userRating),
+      wins: user.wins ?? 0,
+      losses: user.losses ?? 0,
+      ratingHistory: user.ratingHistory?.slice(-20) || [],
       joinedDate: user.createdAt,
       customization: user.customization,
       ...result
@@ -232,7 +445,7 @@ app.get('/api/profile/:userId', async (req, res) => {
 
 // Update Profile Customization
 app.put('/api/profile/customization', async (req, res) => {
-  const { userId, fontFamily, theme } = req.body;
+  const { userId, fontFamily, theme, title, hudSettings } = req.body;
   if (!userId) return res.status(400).json({ error: 'User ID is required' });
   try {
     const user = await User.findById(userId);
@@ -240,6 +453,13 @@ app.put('/api/profile/customization', async (req, res) => {
     
     if (fontFamily) user.customization.fontFamily = fontFamily;
     if (theme) user.customization.theme = theme;
+    if (title) user.customization.title = title;
+    if (hudSettings) {
+      user.customization.hudSettings = {
+        ...(user.customization.hudSettings || {}),
+        ...hudSettings
+      };
+    }
     
     await user.save();
     res.json({ message: 'Customization saved successfully', customization: user.customization });
@@ -248,6 +468,7 @@ app.put('/api/profile/customization', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
 
 app.post('/api/score', async (req, res) => {
   const { userId, score, maxCombo, matchDuration, survived, mode, isPvP } = req.body;
@@ -290,6 +511,7 @@ interface Player {
   survived: boolean;
   userId?: string;
   username?: string;
+  rating?: number;
   metrics?: { wpm: number; accuracy: number; garbageSent: number; };
   rank?: number;
 }
@@ -305,9 +527,18 @@ interface RoomData {
 
 const players = new Map<string, Player>();
 const rooms = new Map<string, RoomData>();
-let matchmakingQueue: Array<{ socketId: string, duration: number, userId?: string, username?: string, modString: string, mods?: any, joinedAt: number }> = [];
+let matchmakingQueue: Array<{
+  socketId: string;
+  duration: number;
+  userId?: string;
+  username?: string;
+  rating: number;
+  modString: string;
+  mods?: any;
+  joinedAt: number;
+}> = [];
 
-// Matchmaking Loop
+// Matchmaking Loop with Dynamic SBMM Window Expansion
 setInterval(() => {
   if (matchmakingQueue.length < 2) return;
 
@@ -321,10 +552,17 @@ setInterval(() => {
   for (const key in groups) {
     const group = groups[key];
     if (group.length >= 2) {
-      const oldest = Math.min(...group.map(p => p.joinedAt));
-      if (group.length >= 10 || Date.now() - oldest > 10000) {
-        const matchPlayers = group.slice(0, 10);
-        matchmakingQueue = matchmakingQueue.filter(p => !matchPlayers.find(mp => mp.socketId === p.socketId));
+      // Find oldest waiting player
+      const oldest = group.reduce((prev, curr) => (curr.joinedAt < prev.joinedAt ? curr : prev));
+      const elapsedSeconds = (Date.now() - oldest.joinedAt) / 1000;
+      
+      // Expand Elo search tolerance window over time (±150 initially, +50 every 3s, infinite after 12s)
+      const tolerance = elapsedSeconds >= 12 ? Infinity : 150 + Math.floor(elapsedSeconds / 3) * 50;
+      const compatible = group.filter(p => Math.abs(p.rating - oldest.rating) <= tolerance || tolerance === Infinity);
+
+      if (compatible.length >= 2 && (compatible.length >= 10 || elapsedSeconds > 3)) {
+        const matchPlayers = compatible.slice(0, 10);
+        matchmakingQueue = matchmakingQueue.filter(p => !matchPlayers.some(mp => mp.socketId === p.socketId));
 
         const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
         
@@ -342,8 +580,15 @@ setInterval(() => {
           if (socket) {
             socket.join(roomId);
             players.set(p.socketId, { 
-              id: p.socketId, roomId, isFinished: false, score: 0, maxCombo: 0, survived: false, 
-              userId: p.userId, username: p.username 
+              id: p.socketId,
+              roomId,
+              isFinished: false,
+              score: 0,
+              maxCombo: 0,
+              survived: false, 
+              userId: p.userId,
+              username: p.username,
+              rating: p.rating
             });
             roomData.players.push(p.socketId);
             roomData.alivePlayers.push(p.socketId);
@@ -357,22 +602,31 @@ setInterval(() => {
           mods: roomData.mods,
           players: roomData.players.map(id => {
             const p = players.get(id);
-            return { id, username: p?.username || 'Guest' };
+            const r = p?.rating || 1200;
+            return { id, username: p?.username || 'Guest', rating: r, tier: getTier(r) };
           })
         });
       }
     }
   }
-}, 2000);
+}, 1500);
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
-  socket.on('join_room', (data: { roomId: string, duration?: number, userId?: string, username?: string, mods?: any }) => {
+  socket.on('join_room', async (data: { roomId: string, duration?: number, userId?: string, username?: string, mods?: any }) => {
     let { roomId, duration = 60, userId, username, mods } = data;
     if (typeof roomId !== 'string' || roomId.length > 10) return;
     if (username && !isValidUsername(username)) username = 'Guest';
     
+    let userRating = 1200;
+    if (userId && mongoose.connection.readyState === 1) {
+      try {
+        const u = await User.findById(userId);
+        if (u && u.rating) userRating = u.rating;
+      } catch (e) {}
+    }
+
     socket.join(roomId);
     
     players.set(socket.id, { 
@@ -383,7 +637,8 @@ io.on('connection', (socket) => {
       maxCombo: 0,
       survived: false,
       userId,
-      username
+      username,
+      rating: userRating
     });
     
     let roomData = rooms.get(roomId);
@@ -411,7 +666,8 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('lobby_update', {
       players: roomData.players.map(id => {
         const p = players.get(id);
-        return { id, username: p?.username || 'Guest', isHost: roomData?.host === id };
+        const r = p?.rating || 1200;
+        return { id, username: p?.username || 'Guest', rating: r, tier: getTier(r), isHost: roomData?.host === id };
       })
     });
   });
@@ -438,21 +694,30 @@ io.on('connection', (socket) => {
         mods: roomData.mods,
         players: roomData.players.map(id => {
           const p = players.get(id);
-          return { id, username: p?.username || 'Guest' };
+          const r = p?.rating || 1200;
+          return { id, username: p?.username || 'Guest', rating: r, tier: getTier(r) };
         })
       });
     }
   });
 
-  socket.on('find_match', (data: { duration?: number, userId?: string, username?: string, mods?: any }) => {
+  socket.on('find_match', async (data: { duration?: number, userId?: string, username?: string, mods?: any }) => {
     let { duration = 60, userId, username, mods } = data;
     if (username && !isValidUsername(username)) username = 'Guest';
     const modString = JSON.stringify(mods || {});
     
-    if (!matchmakingQueue.some(p => p.socketId === socket.id)) {
-      matchmakingQueue.push({ socketId: socket.id, duration, userId, username, modString, mods, joinedAt: Date.now() });
+    let userRating = 1200;
+    if (userId && mongoose.connection.readyState === 1) {
+      try {
+        const u = await User.findById(userId);
+        if (u && u.rating) userRating = u.rating;
+      } catch (e) {}
     }
-    socket.emit('searching_for_match');
+
+    if (!matchmakingQueue.some(p => p.socketId === socket.id)) {
+      matchmakingQueue.push({ socketId: socket.id, duration, userId, username, rating: userRating, modString, mods, joinedAt: Date.now() });
+    }
+    socket.emit('searching_for_match', { rating: userRating, tier: getTier(userRating) });
   });
 
   socket.on('cancel_match', () => {
@@ -512,7 +777,7 @@ io.on('connection', (socket) => {
     // Remove from alive players
     roomData.alivePlayers = roomData.alivePlayers.filter(id => id !== socket.id);
     
-    // Assign rank (if they died)
+    // Assign provisional rank if died
     if (!player.survived) {
       player.rank = roomData.alivePlayers.length + 1;
     }
@@ -522,33 +787,6 @@ io.on('connection', (socket) => {
       rank: player.rank,
       score: player.score
     });
-
-    // Save to database if authenticated
-    if (player.userId && mongoose.connection.readyState === 1) {
-      try {
-        let modeStr = 'vanilla';
-        if (roomData.mods) {
-          const modArr = [];
-          if (roomData.mods.includeNumbers) modArr.push('numbers');
-          if (roomData.mods.includePunctuation) modArr.push('punctuation');
-          if (roomData.mods.longestWords) modArr.push('long_words');
-          if (modArr.length > 0) modeStr = modArr.join('_');
-        }
-
-        const newScore = new Score({
-          userId: player.userId,
-          score: player.score,
-          maxCombo: player.maxCombo,
-          matchDuration: roomData.duration,
-          survived: player.survived,
-          mode: modeStr,
-          isPvP: true
-        });
-        await newScore.save();
-      } catch (err) {
-        console.error('Failed to save score:', err);
-      }
-    }
 
     // Check if match is completely over (1 or 0 players left)
     const activePlayersCount = roomData.players.filter(id => {
@@ -575,23 +813,101 @@ io.on('connection', (socket) => {
           score: p?.score || 0,
           rank: p?.rank || 99,
           survived: p?.survived || false,
-          metrics: p?.metrics
+          metrics: p?.metrics,
+          userId: p?.userId,
+          rating: p?.rating || 1200
         };
       }).sort((a, b) => {
         if (a.rank !== b.rank) return a.rank - b.rank; // Sort by rank first
         return b.score - a.score; // Tiebreaker score
       });
 
-      // Assign ranks to survivors based on score
+      // Assign sequential ranks
       let currentRank = 1;
       for (const r of results) {
-        if (r.rank === 99) {
+        if (r.rank === 99 || r.survived) {
           r.rank = currentRank;
         }
         currentRank++;
       }
 
-      io.to(player.roomId).emit('match_result', { leaderboard: results });
+      // Calculate Multiplayer Elo changes
+      const participants: EloParticipant[] = results.map(r => ({
+        id: r.id,
+        userId: r.userId,
+        rating: r.rating,
+        rank: r.rank
+      }));
+      const eloResults = calculateMultiplayerElo(participants);
+
+      // Save scores and update user ratings in MongoDB
+      if (mongoose.connection.readyState === 1) {
+        let modeStr = 'vanilla';
+        if (roomData.mods) {
+          const modArr = [];
+          if (roomData.mods.includeNumbers) modArr.push('numbers');
+          if (roomData.mods.includePunctuation) modArr.push('punctuation');
+          if (roomData.mods.longestWords) modArr.push('long_words');
+          if (modArr.length > 0) modeStr = modArr.join('_');
+        }
+
+        for (const r of results) {
+          if (r.userId) {
+            try {
+              const eloData = eloResults[r.id];
+              const newScore = new Score({
+                userId: r.userId,
+                score: r.score,
+                maxCombo: players.get(r.id)?.maxCombo || 0,
+                matchDuration: roomData.duration,
+                survived: r.survived,
+                mode: modeStr,
+                isPvP: true,
+                eloChange: eloData?.change || 0
+              });
+              await newScore.save();
+
+              const userDoc = await User.findById(r.userId);
+              if (userDoc) {
+                userDoc.rating = eloData?.newRating ?? (userDoc.rating || 1200);
+                if (r.rank === 1) {
+                  userDoc.wins = (userDoc.wins || 0) + 1;
+                } else {
+                  userDoc.losses = (userDoc.losses || 0) + 1;
+                }
+                userDoc.ratingHistory = userDoc.ratingHistory || [];
+                userDoc.ratingHistory.push({
+                  rating: userDoc.rating,
+                  change: eloData?.change || 0,
+                  matchId: newScore._id as any,
+                  date: new Date()
+                });
+                if (userDoc.ratingHistory.length > 50) {
+                  userDoc.ratingHistory = userDoc.ratingHistory.slice(-50);
+                }
+                await userDoc.save();
+              }
+            } catch (saveErr) {
+              console.error('Failed to save score or update Elo for user:', r.userId, saveErr);
+            }
+          }
+        }
+      }
+
+      io.to(player.roomId).emit('match_result', {
+        leaderboard: results.map(r => ({
+          id: r.id,
+          username: r.username,
+          score: r.score,
+          rank: r.rank,
+          survived: r.survived,
+          metrics: r.metrics,
+          rating: r.rating,
+          tier: getTier(r.rating)
+        })),
+        eloChanges: eloResults
+      });
+
       // Clean up room
       rooms.delete(player.roomId);
     }
@@ -617,7 +933,8 @@ io.on('connection', (socket) => {
             io.to(player.roomId).emit('lobby_update', {
               players: roomData.players.map(id => {
                 const p = players.get(id);
-                return { id, username: p?.username || 'Guest', isHost: roomData.host === id };
+                const r = p?.rating || 1200;
+                return { id, username: p?.username || 'Guest', rating: r, tier: getTier(r), isHost: roomData.host === id };
               })
             });
           }
@@ -632,3 +949,4 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
+

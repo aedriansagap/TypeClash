@@ -39,6 +39,46 @@ export const THEMES: Record<string, ThemeConfig> = {
     wordTyped: '#22d3ee',     // Neon Cyan
     wordRemaining: '#fdf4ff', // Pinkish White
     wordJunk: '#f43f5e'       // Neon Pink/Red
+  },
+  cyberpunk: {
+    id: 'cyberpunk',
+    name: 'Cyberpunk Neon',
+    background: 'radial-gradient(circle at center, #180926 0%, #0a0412 100%)',
+    wordTyped: '#facc15',     // Cyber Yellow
+    wordRemaining: '#38bdf8', // Neon Sky Blue
+    wordJunk: '#f43f5e'       // Hot Pink
+  },
+  sakura: {
+    id: 'sakura',
+    name: 'Sakura Blossom',
+    background: 'radial-gradient(circle at center, #3b1d2e 0%, #1a0b14 100%)',
+    wordTyped: '#f472b6',     // Blossom Pink
+    wordRemaining: '#fdf2f8', // Soft Rose White
+    wordJunk: '#fb7185'       // Crimson Petal
+  },
+  nord: {
+    id: 'nord',
+    name: 'Nord Frost',
+    background: 'radial-gradient(circle at center, #2e3440 0%, #1e222a 100%)',
+    wordTyped: '#88c0d0',     // Arctic Frost Blue
+    wordRemaining: '#eceff4', // Snow White
+    wordJunk: '#bf616a'       // Aurora Red
+  },
+  dracula: {
+    id: 'dracula',
+    name: 'Dracula',
+    background: 'radial-gradient(circle at center, #282a36 0%, #191a21 100%)',
+    wordTyped: '#50fa7b',     // Dracula Green
+    wordRemaining: '#f8f8f2', // Dracula Foreground
+    wordJunk: '#ff5555'       // Dracula Red
+  },
+  monokai: {
+    id: 'monokai',
+    name: 'Monokai Pro',
+    background: 'radial-gradient(circle at center, #2d2a2e 0%, #19181a 100%)',
+    wordTyped: '#a9dc76',     // Monokai Green
+    wordRemaining: '#ffd866', // Monokai Gold
+    wordJunk: '#ff6188'       // Monokai Magenta
   }
 };
 
@@ -47,5 +87,8 @@ export const FONTS = [
   { id: 'Roboto', name: 'Roboto' },
   { id: 'Courier New', name: 'Courier New (Monospace)' },
   { id: 'Comic Sans MS', name: 'Comic Sans MS' },
-  { id: 'Times New Roman', name: 'Times New Roman' }
+  { id: 'Times New Roman', name: 'Times New Roman' },
+  { id: 'Trebuchet MS', name: 'Trebuchet MS' },
+  { id: 'Impact', name: 'Impact (Heavy)' }
 ];
+

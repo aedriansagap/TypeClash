@@ -1,13 +1,32 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IRatingHistory {
+  rating: number;
+  change: number;
+  matchId?: mongoose.Types.ObjectId;
+  date: Date;
+}
+
 export interface IUser extends Document {
   username: string;
   passwordHash?: string;
   isGuest: boolean;
   createdAt: Date;
+  rating: number;
+  ratingHistory: IRatingHistory[];
+  wins: number;
+  losses: number;
   customization: {
     fontFamily: string;
     theme: string;
+    title?: string;
+    hudSettings?: {
+      showWpm?: boolean;
+      showAccuracy?: boolean;
+      showCombo?: boolean;
+      sfxVolume?: number;
+      bgmVolume?: number;
+    };
   };
 }
 
@@ -16,11 +35,29 @@ const UserSchema: Schema = new Schema({
   passwordHash: { type: String },
   isGuest: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
+  rating: { type: Number, default: 1200 },
+  ratingHistory: [{
+    rating: { type: Number, required: true },
+    change: { type: Number, required: true },
+    matchId: { type: Schema.Types.ObjectId, ref: 'Score' },
+    date: { type: Date, default: Date.now }
+  }],
+  wins: { type: Number, default: 0 },
+  losses: { type: Number, default: 0 },
   customization: {
     fontFamily: { type: String, default: 'Inter' },
-    theme: { type: String, default: 'dark' }
+    theme: { type: String, default: 'dark' },
+    title: { type: String, default: 'Novice Typer' },
+    hudSettings: {
+      showWpm: { type: Boolean, default: true },
+      showAccuracy: { type: Boolean, default: true },
+      showCombo: { type: Boolean, default: true },
+      sfxVolume: { type: Number, default: 0.8 },
+      bgmVolume: { type: Number, default: 0.6 }
+    }
   }
 });
+
 
 export const User = mongoose.model<IUser>('User', UserSchema);
 
@@ -32,6 +69,7 @@ export interface IScore extends Document {
   survived: boolean;
   mode: string;
   isPvP: boolean;
+  eloChange?: number;
   createdAt: Date;
 }
 
@@ -43,7 +81,9 @@ const ScoreSchema: Schema = new Schema({
   survived: { type: Boolean, default: false },
   mode: { type: String, default: 'vanilla' }, // e.g., 'vanilla', 'numbers', 'long_words'
   isPvP: { type: Boolean, default: false },
+  eloChange: { type: Number },
   createdAt: { type: Date, default: Date.now }
 });
 
 export const Score = mongoose.model<IScore>('Score', ScoreSchema);
+
