@@ -5,7 +5,8 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { User, Score } from './models';
+import { User, Score, RaidScore } from './models';
+
 
 // Connect to MongoDB
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/typeclash';
@@ -495,6 +496,61 @@ app.post('/api/score', async (req, res) => {
   }
 });
 
+// --- RAID BOSS API --- //
+
+const inMemoryRaidScores: any[] = [];
+
+app.get(['/api/leaderboard/raids', '/api/leaderboard/raids/:bossId'], async (req: any, res) => {
+  const bossId = req.params.bossId;
+  const isDbConnected = mongoose.connection.readyState === 1;
+
+  if (isDbConnected) {
+    try {
+      const filter = bossId && bossId !== 'all' ? { bossId } : {};
+      const raids = await RaidScore.find(filter)
+        .sort({ clearTimeSeconds: 1, totalTeamDamage: -1 })
+        .limit(30);
+      
+      if (raids && raids.length > 0) {
+        return res.json(raids);
+      }
+    } catch (err) {
+      console.error('Raid leaderboard db error:', err);
+    }
+  }
+
+  // Instant in-memory cache
+  let filtered = inMemoryRaidScores;
+  if (bossId && bossId !== 'all') {
+    filtered = filtered.filter(r => r.bossId === bossId);
+  }
+  res.json(filtered.slice(0, 30));
+});
+
+app.post('/api/raid/victory', async (req, res) => {
+  const { bossId, bossName, difficulty, partyMembers, totalTeamDamage, clearTimeSeconds } = req.body;
+  if (!bossId || !partyMembers) return res.status(400).json({ error: 'Missing raid victory data' });
+  
+  const record = {
+    bossId,
+    bossName,
+    difficulty: difficulty || 'normal',
+    partyMembers,
+    totalTeamDamage,
+    clearTimeSeconds,
+    survived: true,
+    createdAt: new Date()
+  };
+  inMemoryRaidScores.unshift(record);
+
+  if (mongoose.connection.readyState === 1) {
+    new RaidScore(record).save().catch(e => console.error('Error saving raid score:', e));
+  }
+  res.json({ success: true, id: 'raid_' + Date.now() });
+});
+
+
+
 // --- SOCKET.IO --- //
 
 const server = http.createServer(app);
@@ -525,8 +581,42 @@ interface RoomData {
   host?: string;
 }
 
+interface RaidPlayer {
+  id: string;
+  roomId: string;
+  userId?: string;
+  username: string;
+  rating: number;
+  isReady: boolean;
+  damageDealt: number;
+  wpm: number;
+  accuracy: number;
+  lives: number;
+  isDead: boolean;
+  isHost: boolean;
+}
+
+interface RaidRoomData {
+  id: string;
+  bossId: string;
+  bossName: string;
+  difficulty: 'normal' | 'heroic' | 'mythic';
+  hostId: string;
+  players: string[];
+  maxHp: number;
+  currentHp: number;
+  shieldHp: number;
+  shieldMaxHp: number;
+  phase: number;
+  status: 'lobby' | 'playing' | 'victory' | 'defeat';
+  startTime?: number;
+}
+
 const players = new Map<string, Player>();
 const rooms = new Map<string, RoomData>();
+const raidPlayers = new Map<string, RaidPlayer>();
+const raidRooms = new Map<string, RaidRoomData>();
+
 let matchmakingQueue: Array<{
   socketId: string;
   duration: number;
@@ -913,9 +1003,317 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ==========================================
+  // --- CO-OP RAID BOSS SOCKET HANDLERS --- //
+  // ==========================================
+
+  socket.on('create_raid_lobby', ({ bossId, bossName, difficulty, userId, username, rating }) => {
+    const roomId = 'RAID-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+    socket.join(roomId);
+
+    const baseHp = bossId === 'chronos' ? 6500 : bossId === 'glitch' ? 4500 : 3000;
+    const diffMult = difficulty === 'mythic' ? 2.2 : difficulty === 'heroic' ? 1.5 : 1.0;
+    const initialHp = Math.round(baseHp * diffMult);
+
+    const raidRoom: RaidRoomData = {
+      id: roomId,
+      bossId: bossId || 'ignis',
+      bossName: bossName || 'Ignis, Flame Colossus',
+      difficulty: difficulty || 'normal',
+      hostId: socket.id,
+      players: [socket.id],
+      maxHp: initialHp,
+      currentHp: initialHp,
+      shieldHp: 0,
+      shieldMaxHp: 0,
+      phase: 1,
+      status: 'lobby'
+    };
+
+    raidRooms.set(roomId, raidRoom);
+    raidPlayers.set(socket.id, {
+      id: socket.id,
+      roomId,
+      userId,
+      username: username || 'Raid Leader',
+      rating: rating || 1200,
+      isReady: true, // Host is ready by default
+      damageDealt: 0,
+      wpm: 0,
+      accuracy: 100,
+      lives: 4,
+      isDead: false,
+      isHost: true
+    });
+
+    socket.emit('raid_lobby_created', { roomId, room: raidRoom });
+    io.to(roomId).emit('raid_lobby_update', {
+      roomId,
+      bossId: raidRoom.bossId,
+      bossName: raidRoom.bossName,
+      difficulty: raidRoom.difficulty,
+      hostId: raidRoom.hostId,
+      players: raidRoom.players.map(pId => raidPlayers.get(pId))
+    });
+  });
+
+  socket.on('join_raid_lobby', ({ roomId, userId, username, rating }) => {
+    const normalizedRoomId = roomId ? roomId.trim().toUpperCase() : '';
+    const room = raidRooms.get(normalizedRoomId);
+
+    if (!room) {
+      return socket.emit('raid_error', { message: 'Raid room not found' });
+    }
+    if (room.status !== 'lobby') {
+      return socket.emit('raid_error', { message: 'Raid is already in combat' });
+    }
+    if (room.players.length >= 4) {
+      return socket.emit('raid_error', { message: 'Raid party is full (Max 4 players)' });
+    }
+
+    socket.join(normalizedRoomId);
+    room.players.push(socket.id);
+
+    raidPlayers.set(socket.id, {
+      id: socket.id,
+      roomId: normalizedRoomId,
+      userId,
+      username: username || `Raider_${room.players.length}`,
+      rating: rating || 1200,
+      isReady: false,
+      damageDealt: 0,
+      wpm: 0,
+      accuracy: 100,
+      lives: 4,
+      isDead: false,
+      isHost: false
+    });
+
+    io.to(normalizedRoomId).emit('raid_lobby_update', {
+      roomId: normalizedRoomId,
+      bossId: room.bossId,
+      bossName: room.bossName,
+      difficulty: room.difficulty,
+      hostId: room.hostId,
+      players: room.players.map(pId => raidPlayers.get(pId))
+    });
+  });
+
+  socket.on('toggle_raid_ready', ({ roomId }) => {
+    const player = raidPlayers.get(socket.id);
+    if (player && player.roomId === roomId && !player.isHost) {
+      player.isReady = !player.isReady;
+      const room = raidRooms.get(roomId);
+      if (room) {
+        io.to(roomId).emit('raid_lobby_update', {
+          roomId,
+          bossId: room.bossId,
+          bossName: room.bossName,
+          difficulty: room.difficulty,
+          hostId: room.hostId,
+          players: room.players.map(pId => raidPlayers.get(pId))
+        });
+      }
+    }
+  });
+
+  socket.on('start_raid_match', ({ roomId }) => {
+    const room = raidRooms.get(roomId);
+    const player = raidPlayers.get(socket.id);
+    if (!room || !player || !player.isHost) return;
+
+    // Check all ready
+    const allReady = room.players.every(pId => raidPlayers.get(pId)?.isReady);
+    if (!allReady) {
+      return socket.emit('raid_error', { message: 'All party members must be ready before engaging!' });
+    }
+
+    room.status = 'playing';
+    room.startTime = Date.now();
+
+    // Scale HP for party size: 1 + (partySize - 1) * 0.75
+    const partySize = room.players.length;
+    const baseHp = room.bossId === 'chronos' ? 6500 : room.bossId === 'glitch' ? 4500 : 3000;
+    const diffMult = room.difficulty === 'mythic' ? 2.2 : room.difficulty === 'heroic' ? 1.5 : 1.0;
+    const coopMult = 1 + (partySize - 1) * 0.75;
+    const totalMaxHp = Math.round(baseHp * diffMult * coopMult);
+
+    room.maxHp = totalMaxHp;
+    room.currentHp = totalMaxHp;
+    room.phase = 1;
+
+    // Reset player combat stats
+    room.players.forEach(pId => {
+      const rp = raidPlayers.get(pId);
+      if (rp) {
+        rp.damageDealt = 0;
+        rp.lives = 4;
+        rp.isDead = false;
+      }
+    });
+
+    const seed = Math.random().toString();
+    io.to(roomId).emit('raid_match_start', {
+      roomId,
+      seed,
+      bossId: room.bossId,
+      bossName: room.bossName,
+      difficulty: room.difficulty,
+      maxHp: room.maxHp,
+      currentHp: room.currentHp,
+      partySize,
+      players: room.players.map(pId => raidPlayers.get(pId))
+    });
+  });
+
+  socket.on('raid_damage_dealt', ({ roomId, damage, isCrit, wpm, accuracy }) => {
+    const room = raidRooms.get(roomId);
+    const player = raidPlayers.get(socket.id);
+    if (!room || !player || room.status !== 'playing') return;
+
+    player.damageDealt += damage;
+    if (wpm !== undefined) player.wpm = wpm;
+    if (accuracy !== undefined) player.accuracy = accuracy;
+
+    // Apply damage to shield or HP
+    if (room.shieldHp > 0) {
+      room.shieldHp = Math.max(0, room.shieldHp - damage);
+    } else {
+      room.currentHp = Math.max(0, room.currentHp - damage);
+    }
+
+    // Check Phase 2
+    if (room.phase === 1 && room.currentHp <= room.maxHp * 0.5 && room.currentHp > 0) {
+      room.phase = 2;
+      io.to(roomId).emit('raid_boss_phase_change', { phase: 2 });
+    }
+
+    // Broadcast updated boss HP and live team stats
+    io.to(roomId).emit('raid_boss_hp_sync', {
+      currentHp: room.currentHp,
+      maxHp: room.maxHp,
+      shieldHp: room.shieldHp,
+      dealerId: socket.id,
+      dealerName: player.username,
+      damage,
+      isCrit
+    });
+
+    io.to(roomId).emit('raid_team_stats_sync', {
+      players: room.players.map(pId => raidPlayers.get(pId))
+    });
+
+    // Check Raid Victory
+    if (room.currentHp <= 0) {
+      room.status = 'victory';
+      const clearTimeSeconds = Math.round((Date.now() - (room.startTime || Date.now())) / 1000);
+      const totalTeamDamage = room.players.reduce((sum, pId) => sum + (raidPlayers.get(pId)?.damageDealt || 0), 0);
+
+      const partyMembers = room.players.map(pId => {
+        const rp = raidPlayers.get(pId)!;
+        return {
+          userId: rp.userId as any,
+          username: rp.username,
+          damageDealt: rp.damageDealt,
+          wpm: rp.wpm,
+          accuracy: rp.accuracy,
+          survived: !rp.isDead
+        };
+      });
+
+      const raidScoreRecord = {
+        bossId: room.bossId,
+        bossName: room.bossName,
+        difficulty: room.difficulty,
+        partyMembers,
+        totalTeamDamage,
+        clearTimeSeconds,
+        survived: true,
+        createdAt: new Date()
+      };
+      inMemoryRaidScores.unshift(raidScoreRecord);
+
+      // Save to database asynchronously
+      new RaidScore(raidScoreRecord).save().catch(e => console.error('Error saving raid score:', e));
+
+
+      io.to(roomId).emit('raid_victory_all', {
+        bossId: room.bossId,
+        bossName: room.bossName,
+        difficulty: room.difficulty,
+        clearTimeSeconds,
+        totalTeamDamage,
+        rankings: room.players.map(pId => raidPlayers.get(pId)).sort((a, b) => (b?.damageDealt || 0) - (a?.damageDealt || 0))
+      });
+
+      raidRooms.delete(roomId);
+    }
+  });
+
+  socket.on('raid_boss_spell_cast', ({ roomId, abilityId }) => {
+    const room = raidRooms.get(roomId);
+    if (room && room.status === 'playing') {
+      if (abilityId === 'data_barrier') {
+        room.shieldMaxHp = 1200;
+        room.shieldHp = 1200;
+      }
+      io.to(roomId).emit('raid_boss_spell_trigger', { abilityId, shieldHp: room.shieldHp });
+    }
+  });
+
+  socket.on('raid_player_death', ({ roomId }) => {
+    const room = raidRooms.get(roomId);
+    const player = raidPlayers.get(socket.id);
+    if (!room || !player) return;
+
+    player.isDead = true;
+    player.lives = 0;
+
+    io.to(roomId).emit('raid_player_down', { id: socket.id, username: player.username });
+
+    const allDead = room.players.every(pId => raidPlayers.get(pId)?.isDead);
+    if (allDead) {
+      room.status = 'defeat';
+      io.to(roomId).emit('raid_defeat_all', {
+        bossId: room.bossId,
+        bossName: room.bossName,
+        remainingBossHp: room.currentHp,
+        maxHp: room.maxHp
+      });
+      raidRooms.delete(roomId);
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     matchmakingQueue = matchmakingQueue.filter(p => p.socketId !== socket.id);
+    
+    // Clean up Raid Lobbies
+    const raidPlayer = raidPlayers.get(socket.id);
+    if (raidPlayer) {
+      const room = raidRooms.get(raidPlayer.roomId);
+      if (room) {
+        room.players = room.players.filter(id => id !== socket.id);
+        if (room.players.length === 0) {
+          raidRooms.delete(raidPlayer.roomId);
+        } else {
+          if (room.hostId === socket.id && room.status === 'lobby') {
+            room.hostId = room.players[0];
+            const nextHost = raidPlayers.get(room.hostId);
+            if (nextHost) nextHost.isHost = true;
+          }
+          io.to(raidPlayer.roomId).emit('raid_lobby_update', {
+            roomId: room.id,
+            bossId: room.bossId,
+            bossName: room.bossName,
+            difficulty: room.difficulty,
+            hostId: room.hostId,
+            players: room.players.map(pId => raidPlayers.get(pId))
+          });
+        }
+      }
+      raidPlayers.delete(socket.id);
+    }
     
     const player = players.get(socket.id);
     if (player) {
@@ -944,6 +1342,7 @@ io.on('connection', (socket) => {
     }
   });
 });
+
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {

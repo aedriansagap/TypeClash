@@ -87,3 +87,42 @@ const ScoreSchema: Schema = new Schema({
 
 export const Score = mongoose.model<IScore>('Score', ScoreSchema);
 
+export interface IRaidScore extends Document {
+  bossId: string;
+  bossName: string;
+  difficulty: string;
+  partyMembers: Array<{
+    userId?: mongoose.Types.ObjectId;
+    username: string;
+    damageDealt: number;
+    wpm: number;
+    accuracy: number;
+    survived: boolean;
+  }>;
+  totalTeamDamage: number;
+  clearTimeSeconds: number;
+  survived: boolean;
+  createdAt: Date;
+}
+
+const RaidScoreSchema: Schema = new Schema({
+  bossId: { type: String, required: true },
+  bossName: { type: String, required: true },
+  difficulty: { type: String, default: 'normal' },
+  partyMembers: [{
+    userId: { type: Schema.Types.ObjectId, ref: 'User' },
+    username: { type: String, required: true },
+    damageDealt: { type: Number, required: true },
+    wpm: { type: Number, default: 0 },
+    accuracy: { type: Number, default: 100 },
+    survived: { type: Boolean, default: true }
+  }],
+  totalTeamDamage: { type: Number, required: true },
+  clearTimeSeconds: { type: Number, required: true },
+  survived: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+export const RaidScore = mongoose.model<IRaidScore>('RaidScore', RaidScoreSchema);
+
+

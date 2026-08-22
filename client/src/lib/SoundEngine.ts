@@ -289,5 +289,56 @@ export class SoundEngine {
       this.bgmGain.gain.setTargetAtTime(0.05 * this.bgmVolume, this.ctx.currentTime, 0.1);
     }
   }
+
+  // --- Boss Battle Sound Effects --- //
+
+  public playBossRoar() {
+    // Deep rumbling low pitch oscillator sweep
+    this.playTone(110, 'sawtooth', 1.2, 0.35, 45, 0, true);
+    setTimeout(() => {
+      this.playTone(85, 'square', 0.8, 0.3, 35, 0, true);
+    }, 150);
+  }
+
+  public playBossHit(isCrit: boolean = false) {
+    if (isCrit) {
+      this.playTone(587.33, 'triangle', 0.25, 0.25, 880);
+      this.playTone(880, 'sine', 0.2, 0.3, 1174.66);
+    } else {
+      this.playTone(220, 'sawtooth', 0.12, 0.15, 140);
+    }
+  }
+
+  public playBossCastWarning() {
+    this.playTone(440, 'square', 0.15, 0.2, 880);
+    setTimeout(() => {
+      this.playTone(660, 'square', 0.2, 0.25, 1320);
+    }, 120);
+  }
+
+  public playShieldBroken() {
+    this.playTone(880, 'sine', 0.3, 0.3, 220);
+    this.playTone(1200, 'triangle', 0.4, 0.35, 300);
+  }
+
+  public playBossDefeated() {
+    // Grand orchestral triumphant chord sequence
+    const chords = [
+      [261.63, 329.63, 392.00], // C
+      [349.23, 440.00, 523.25], // F
+      [392.00, 493.88, 587.33], // G
+      [523.25, 659.25, 783.99]  // High C
+    ];
+
+    chords.forEach((chord, idx) => {
+      setTimeout(() => {
+        chord.forEach(freq => {
+          this.playTone(freq, 'triangle', 0.6, 0.25, undefined, 0, true);
+          this.playTone(freq * 2, 'sine', 0.4, 0.15, undefined, 0, true);
+        });
+      }, idx * 280);
+    });
+  }
 }
+
 

@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy } from '@fortawesome/free-solid-svg-icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import { SoundEngine } from '@/lib/SoundEngine';
 import { THEMES, FONTS } from '@/lib/themes';
+import { BOSSES, BOSS_DIFFICULTIES, BossConfig, BossDifficulty } from '@/lib/bosses';
 import styles from './Game.module.css';
 
 const SERVER_URL = (process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -72,6 +73,24 @@ export const PLAYER_TITLES: PlayerTitle[] = [
     name: '🏆 Grandmaster',
     description: 'Reach Grandmaster Tier (2200+ Elo)',
     unlocked: (_, r) => r >= 2200
+  },
+  {
+    id: 'colossus_slayer',
+    name: '🔥 Colossus Slayer',
+    description: 'Defeat Ignis, The Flame Colossus',
+    unlocked: (p) => (p?.personalBestScore || 0) >= 150
+  },
+  {
+    id: 'glitch_breaker',
+    name: '⚡ Glitch Breaker',
+    description: 'Defeat Glitch, The Cyber Phantom',
+    unlocked: (p) => (p?.personalBestScore || 0) >= 250
+  },
+  {
+    id: 'void_conqueror',
+    name: '🌌 Void Conqueror',
+    description: 'Defeat Chronos, Void Sovereign',
+    unlocked: (p) => (p?.personalBestScore || 0) >= 400
   }
 ];
 
@@ -135,11 +154,37 @@ export default function Game() {
   
   // Leaderboard
   const [showLeaderboard, setShowLeaderboard] = useState(false);
-  const [leaderboardTab, setLeaderboardTab] = useState<'GLOBAL' | 'PERSONAL' | 'RANKED'>('GLOBAL');
+  const [leaderboardTab, setLeaderboardTab] = useState<'GLOBAL' | 'PERSONAL' | 'RANKED' | 'RAIDS'>('GLOBAL');
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
+  const [raidLeaderboardData, setRaidLeaderboardData] = useState<any[]>([]);
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  // Boss Rush & Co-Op Raid State
+  const [showBossModal, setShowBossModal] = useState(false);
+  const [selectedBossId, setSelectedBossId] = useState<string>('ignis');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<BossDifficulty>('normal');
+  const [isCoopRaidMode, setIsCoopRaidMode] = useState(false);
+  const [raidLobbyCodeInput, setRaidLobbyCodeInput] = useState('');
+  const [raidLobbyData, setRaidLobbyData] = useState<{
+    roomId: string;
+    bossId: string;
+    bossName: string;
+    difficulty: BossDifficulty;
+    hostId: string;
+    players: Array<{ id: string; username: string; rating: number; isReady: boolean; isHost: boolean }>;
+  } | null>(null);
+  const [raidTeamStats, setRaidTeamStats] = useState<Array<{ id: string; username: string; damageDealt: number; wpm: number; accuracy: number; lives: number; isDead: boolean }>>([]);
+  const [bossVictoryData, setBossVictoryData] = useState<{
+    boss: BossConfig;
+    clearTimeSeconds: number;
+    stats: { totalDamage: number; wpm: number; maxCombo: number; accuracy: number };
+    rankings?: any[];
+  } | null>(null);
+  const [bossDefeatData, setBossDefeatData] = useState<{ bossName: string; remainingHp?: number; maxHp?: number } | null>(null);
+  const [isBossFightActive, setIsBossFightActive] = useState(false);
+  const [activeBossLeaderboardTab, setActiveBossLeaderboardTab] = useState<string>('all');
   
   // Cosmetics & Customization
   const [customization, setCustomization] = useState({ theme: 'dark', fontFamily: 'Inter' });
@@ -177,6 +222,7 @@ export default function Game() {
   // Game Modifiers
   const [mods, setMods] = useState({ includeNumbers: false, includePunctuation: false, longestWords: false });
   const [leaderboardMode, setLeaderboardMode] = useState('vanilla');
+
 
   // Load from LocalStorage & Session Expiry
   useEffect(() => {
@@ -300,8 +346,38 @@ export default function Game() {
         setMatchHistory(prev => [...prev, { time: prev.length, p1: metrics.wpm, opponent: topOppWpm }]);
       };
 
+      engineRef.current.onBossDamageDealt = (damage, isCrit, currentHp) => {
+        if (socketRef.current && isCoopRaidMode && raidLobbyData) {
+          socketRef.current.emit('raid_damage_dealt', {
+            roomId: raidLobbyData.roomId,
+            damage,
+            isCrit,
+            wpm: playerMetrics?.wpm || 0,
+            accuracy: playerMetrics?.accuracy || 100
+          });
+        }
+      };
+
+      engineRef.current.onBossDefeated = (boss, clearTimeSeconds, stats) => {
+        setIsPlaying(false);
+        setIsBossFightActive(false);
+        setBossVictoryData({ boss, clearTimeSeconds, stats });
+        if (userId && !isGuest) {
+          updateCustomization(customization.theme, customization.fontFamily, boss.titleReward.name, hudSettings);
+        }
+      };
+
+      engineRef.current.onBossSpellCast = (abilityId) => {
+        if (socketRef.current && isCoopRaidMode && raidLobbyData) {
+          socketRef.current.emit('raid_boss_spell_cast', {
+            roomId: raidLobbyData.roomId,
+            abilityId
+          });
+        }
+      };
+
     }
-  }, [isSinglePlayer]);
+  }, [isSinglePlayer, isCoopRaidMode, raidLobbyData, playerMetrics]);
 
   useEffect(() => {
     if (engineRef.current) {
@@ -333,8 +409,10 @@ export default function Game() {
         setWaitingForOpponent(false);
         setIsSearchingAuto(false);
         setIsSinglePlayer(false);
+        setIsCoopRaidMode(false);
+        setIsBossFightActive(false);
         setIsPlaying(true);
-                setWaitingForResult(false);
+        setWaitingForResult(false);
         setPlayerMetrics(null);
         setMatchHistory([]);
         setFinalLeaderboard(null);
@@ -428,7 +506,126 @@ export default function Game() {
         }
       });
 
+      // --- Raid Socket Events --- //
+      socketRef.current.on('raid_lobby_created', (data: { roomId: string, room: any }) => {
+        setRaidLobbyData({
+          roomId: data.roomId,
+          bossId: data.room.bossId,
+          bossName: data.room.bossName,
+          difficulty: data.room.difficulty,
+          hostId: data.room.hostId,
+          players: [{ id: socketRef.current?.id || '', username: username || 'Raid Leader', rating: userRating, isReady: true, isHost: true }]
+        });
+      });
+
+      socketRef.current.on('raid_lobby_update', (data: { roomId: string, bossId: string, bossName: string, difficulty: BossDifficulty, hostId: string, players: any[] }) => {
+        setRaidLobbyData({
+          roomId: data.roomId,
+          bossId: data.bossId,
+          bossName: data.bossName,
+          difficulty: data.difficulty,
+          hostId: data.hostId,
+          players: data.players.map(p => ({
+            id: p.id,
+            username: p.username,
+            rating: p.rating,
+            isReady: p.isReady,
+            isHost: p.id === data.hostId
+          }))
+        });
+      });
+
+      socketRef.current.on('raid_match_start', (data: { roomId: string, seed: string, bossId: string, bossName: string, difficulty: BossDifficulty, maxHp: number, currentHp: number, partySize: number, players: any[] }) => {
+        setShowBossModal(false);
+        setIsSinglePlayer(false);
+        setIsCoopRaidMode(true);
+        setIsBossFightActive(true);
+        setIsPlaying(true);
+        setPlayerMetrics(null);
+        setMatchHistory([]);
+        setBossVictoryData(null);
+        setBossDefeatData(null);
+        setRaidTeamStats(data.players.map(p => ({
+          id: p.id,
+          username: p.username,
+          damageDealt: 0,
+          wpm: 0,
+          accuracy: 100,
+          lives: 4,
+          isDead: false
+        })));
+
+        if (engineRef.current) {
+          engineRef.current.startBossFight(data.bossId, data.difficulty, true, data.partySize, data.seed);
+        }
+      });
+
+      socketRef.current.on('raid_boss_hp_sync', (data: { currentHp: number, maxHp: number, shieldHp: number, dealerId: string, dealerName: string, damage: number, isCrit: boolean }) => {
+        if (engineRef.current) {
+          engineRef.current.syncBossHp(data.currentHp, data.shieldHp);
+        }
+      });
+
+      socketRef.current.on('raid_team_stats_sync', (data: { players: any[] }) => {
+        setRaidTeamStats(data.players.map(p => ({
+          id: p.id,
+          username: p.username,
+          damageDealt: p.damageDealt || 0,
+          wpm: p.wpm || 0,
+          accuracy: p.accuracy || 100,
+          lives: p.lives ?? 4,
+          isDead: p.isDead || false
+        })));
+      });
+
+      socketRef.current.on('raid_boss_spell_trigger', (data: { abilityId: string, shieldHp: number }) => {
+        if (engineRef.current) {
+          engineRef.current.executeBossAbility(data.abilityId);
+          if (data.shieldHp) engineRef.current.bossShieldHp = data.shieldHp;
+        }
+      });
+
+      socketRef.current.on('raid_player_down', (data: { id: string, username: string }) => {
+        setRaidTeamStats(prev => prev.map(p => p.id === data.id ? { ...p, isDead: true, lives: 0 } : p));
+      });
+
+      socketRef.current.on('raid_victory_all', (data: { bossId: string, bossName: string, difficulty: BossDifficulty, clearTimeSeconds: number, totalTeamDamage: number, rankings: any[] }) => {
+        setIsPlaying(false);
+        setIsBossFightActive(false);
+        const boss = BOSSES[data.bossId] || BOSSES.ignis;
+        const myStats = data.rankings.find(r => r.id === socketRef.current?.id);
+        setBossVictoryData({
+          boss,
+          clearTimeSeconds: data.clearTimeSeconds,
+          stats: {
+            totalDamage: myStats?.damageDealt || 0,
+            wpm: myStats?.wpm || 0,
+            maxCombo: 0,
+            accuracy: myStats?.accuracy || 100
+          },
+          rankings: data.rankings
+        });
+        if (userId && !isGuest) {
+          updateCustomization(customization.theme, customization.fontFamily, boss.titleReward.name, hudSettings);
+        }
+      });
+
+      socketRef.current.on('raid_defeat_all', (data: { bossId: string, bossName: string, remainingBossHp: number, maxHp: number }) => {
+        setIsPlaying(false);
+        setIsBossFightActive(false);
+        setBossDefeatData({
+          bossName: data.bossName,
+          remainingHp: data.remainingBossHp,
+          maxHp: data.maxHp
+        });
+      });
+
+      socketRef.current.on('raid_error', (data: { message: string }) => {
+        alert(data.message);
+      });
+
       socketRef.current.on('waiting_for_result', () => {
+
         setWaitingForResult(true);
       });
 
@@ -733,12 +930,22 @@ export default function Game() {
   };
 
 
-  const loadLeaderboard = async (tab: 'GLOBAL' | 'PERSONAL' | 'RANKED', mode: string = leaderboardMode, duration: number = matchDuration) => {
+  const loadLeaderboard = async (tab: 'GLOBAL' | 'PERSONAL' | 'RANKED' | 'RAIDS', mode: string = leaderboardMode, duration: number = matchDuration, bossFilter: string = activeBossLeaderboardTab) => {
     setLeaderboardTab(tab);
     setLeaderboardMode(mode);
     setMatchDuration(duration);
+    setActiveBossLeaderboardTab(bossFilter);
     setIsLeaderboardLoading(true);
     try {
+      if (tab === 'RAIDS') {
+        const filterPath = bossFilter && bossFilter !== 'all' ? `/${bossFilter}` : '';
+        const res = await fetch(`${SERVER_URL}/api/leaderboard/raids${filterPath}`);
+        const data = await res.json();
+        setRaidLeaderboardData(data);
+        setShowLeaderboard(true);
+        return;
+      }
+
       let url = `${SERVER_URL}/api/leaderboard/${duration}/${mode}`;
       if (tab === 'PERSONAL') {
         url = `${SERVER_URL}/api/leaderboard/personal/${userId}/${duration}/${mode}`;
@@ -756,6 +963,67 @@ export default function Game() {
       setIsLeaderboardLoading(false);
     }
   };
+
+  // Boss Rush Actions
+  const startSoloBossFight = (bossId: string = selectedBossId, difficulty: BossDifficulty = selectedDifficulty) => {
+    setShowBossModal(false);
+    setIsSinglePlayer(true);
+    setIsCoopRaidMode(false);
+    setIsBossFightActive(true);
+    setIsPlaying(true);
+    setWaitingForOpponent(false);
+    setFinalLeaderboard(null);
+    setBossVictoryData(null);
+    setBossDefeatData(null);
+    setMatchHistory([]);
+    setPlayerMetrics(null);
+    setGameState(prev => ({ ...prev, isGameOver: false }));
+
+    if (engineRef.current) {
+      engineRef.current.startBossFight(bossId, difficulty, false, 1);
+    }
+  };
+
+  const createRaidLobby = (bossId: string = selectedBossId, difficulty: BossDifficulty = selectedDifficulty) => {
+    const boss = BOSSES[bossId] || BOSSES.ignis;
+    socketRef.current?.emit('create_raid_lobby', {
+      bossId,
+      bossName: boss.name,
+      difficulty,
+      userId,
+      username: username || 'Raid Leader',
+      rating: userRating
+    });
+  };
+
+  const joinRaidLobby = (code: string) => {
+    if (!code.trim()) return;
+    socketRef.current?.emit('join_raid_lobby', {
+      roomId: code.trim().toUpperCase(),
+      userId,
+      username: username || 'Raider',
+      rating: userRating
+    });
+  };
+
+  const toggleRaidReady = () => {
+    if (raidLobbyData) {
+      socketRef.current?.emit('toggle_raid_ready', { roomId: raidLobbyData.roomId });
+    }
+  };
+
+  const startRaidMatch = () => {
+    if (raidLobbyData) {
+      socketRef.current?.emit('start_raid_match', { roomId: raidLobbyData.roomId });
+    }
+  };
+
+  const leaveRaidLobby = () => {
+    setRaidLobbyData(null);
+    socketRef.current?.disconnect();
+    socketRef.current = io(SERVER_URL);
+  };
+
 
 
   const createRoom = () => {
@@ -1252,10 +1520,33 @@ export default function Game() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '1rem', width: '100%', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', gap: '1rem', width: '100%', marginBottom: '0.8rem' }}>
                 <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px' }} onClick={playSinglePlayer}>Play Solo</button>
                 <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)' }} onClick={playDailyRun}>Daily Run</button>
               </div>
+
+              <button 
+                className={styles.btn} 
+                style={{ 
+                  width: '100%', 
+                  marginTop: 0, 
+                  marginBottom: '0.8rem',
+                  fontSize: '1.25rem', 
+                  padding: '13px', 
+                  background: 'linear-gradient(135deg, #dc2626, #991b1b)',
+                  border: '1px solid #f87171',
+                  boxShadow: '0 0 20px rgba(220, 38, 38, 0.45)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px'
+                }} 
+                onClick={() => setShowBossModal(true)}
+              >
+                <FontAwesomeIcon icon={faSkull} className={styles.iconPulse} style={{ color: '#fca5a5' }} />
+                <span>Boss Rush & Raids</span>
+              </button>
+
               <button className={styles.btn} style={{ width: '100%', marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #1e40af, #1e3a8a)' }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Leaderboard</button>
             </div>
           </div>
@@ -1265,18 +1556,36 @@ export default function Game() {
       {/* Leaderboard Modal */}
       {showLeaderboard && !isPlaying && (
         <div className={styles.overlay}>
-          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '700px', maxHeight: '85vh', overflowY: 'auto' }}>
             <h2 className={styles.title} style={{fontSize: '3rem', marginBottom: '1rem'}}>Leaderboards</h2>
             
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', width: '100%' }}>
-              <button className={`${styles.btnSmall} ${leaderboardTab === 'RANKED' ? styles.btnSmallActive : ''}`} style={{ flex: 1 }} onClick={() => loadLeaderboard('RANKED', leaderboardMode, matchDuration)}>
-                <FontAwesomeIcon icon={faTrophy} style={{ marginRight: '6px', color: '#fbbf24' }} /> Ranked Elo
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginBottom: '1rem', width: '100%' }}>
+              <button className={`${styles.btnSmall} ${leaderboardTab === 'RANKED' ? styles.btnSmallActive : ''}`} onClick={() => loadLeaderboard('RANKED', leaderboardMode, matchDuration)}>
+                <FontAwesomeIcon icon={faTrophy} style={{ marginRight: '4px', color: '#fbbf24' }} /> Ranked
               </button>
-              <button className={`${styles.btnSmall} ${leaderboardTab === 'GLOBAL' ? styles.btnSmallActive : ''}`} style={{ flex: 1 }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Global Top</button>
-              <button className={`${styles.btnSmall} ${leaderboardTab === 'PERSONAL' ? styles.btnSmallActive : ''}`} style={{ flex: 1 }} onClick={() => loadLeaderboard('PERSONAL', leaderboardMode, matchDuration)}>My History</button>
+              <button className={`${styles.btnSmall} ${leaderboardTab === 'GLOBAL' ? styles.btnSmallActive : ''}`} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Global</button>
+              <button className={`${styles.btnSmall} ${leaderboardTab === 'RAIDS' ? styles.btnSmallActive : ''}`} onClick={() => loadLeaderboard('RAIDS', leaderboardMode, matchDuration, 'all')}>
+                <FontAwesomeIcon icon={faSkull} style={{ marginRight: '4px', color: '#f87171' }} /> Raids
+              </button>
+              <button className={`${styles.btnSmall} ${leaderboardTab === 'PERSONAL' ? styles.btnSmallActive : ''}`} onClick={() => loadLeaderboard('PERSONAL', leaderboardMode, matchDuration)}>History</button>
             </div>
 
-            {leaderboardTab !== 'RANKED' && (
+            {leaderboardTab === 'RAIDS' && (
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.2rem', width: '100%' }}>
+                {['all', 'ignis', 'glitch', 'chronos'].map(bId => (
+                  <button 
+                    key={bId}
+                    className={styles.btnSmall}
+                    style={{ flex: 1, textTransform: 'capitalize', background: activeBossLeaderboardTab === bId ? '#dc2626' : 'rgba(255,255,255,0.08)' }}
+                    onClick={() => loadLeaderboard('RAIDS', leaderboardMode, matchDuration, bId)}
+                  >
+                    {bId === 'all' ? 'All Bosses' : BOSSES[bId]?.name.split(',')[0]}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {leaderboardTab !== 'RANKED' && leaderboardTab !== 'RAIDS' && (
               <>
                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', width: '100%', alignItems: 'center' }}>
                   <span style={{ fontWeight: 'bold' }}>Mode:</span>
@@ -1317,12 +1626,18 @@ export default function Game() {
                 <thead>
                   <tr style={{borderBottom: '1px solid rgba(255,255,255,0.2)'}}>
                     <th style={{padding: '10px'}}>Rank</th>
-                    <th style={{padding: '10px'}}>{leaderboardTab === 'PERSONAL' ? 'Date' : 'Player'}</th>
+                    <th style={{padding: '10px'}}>{leaderboardTab === 'PERSONAL' ? 'Date' : leaderboardTab === 'RAIDS' ? 'Boss / Party' : 'Player'}</th>
                     {leaderboardTab === 'RANKED' ? (
                       <>
                         <th style={{padding: '10px'}}>Tier</th>
                         <th style={{padding: '10px'}}>Rating</th>
                         <th style={{padding: '10px'}}>Record</th>
+                      </>
+                    ) : leaderboardTab === 'RAIDS' ? (
+                      <>
+                        <th style={{padding: '10px'}}>Difficulty</th>
+                        <th style={{padding: '10px'}}>Clear Time</th>
+                        <th style={{padding: '10px'}}>Team DMG</th>
                       </>
                     ) : (
                       <>
@@ -1339,12 +1654,34 @@ export default function Game() {
                         <div className={styles.spinner}></div>
                       </td>
                     </tr>
+                  ) : leaderboardTab === 'RAIDS' ? (
+                    raidLeaderboardData.length === 0 ? (
+                      <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>No raid records yet! Defeat a boss to enter the Hall of Fame.</td></tr>
+                    ) : (
+                      raidLeaderboardData.map((row, idx) => (
+                        <tr key={idx} style={{ background: idx % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'transparent' }}>
+                          <td style={{ padding: '10px', fontWeight: 'bold', color: idx === 0 ? '#fcd34d' : '#fff' }}>#{idx + 1}</td>
+                          <td style={{ padding: '10px' }}>
+                            <div style={{ fontWeight: 'bold', color: '#fca5a5' }}>{row.bossName}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                              {row.partyMembers?.map((m: any) => m.username).join(', ')}
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px', textTransform: 'uppercase', fontSize: '0.85rem', fontWeight: 'bold', color: row.difficulty === 'mythic' ? '#c084fc' : row.difficulty === 'heroic' ? '#fb923c' : '#4ade80' }}>
+                            {row.difficulty}
+                          </td>
+                          <td style={{ padding: '10px', color: '#38bdf8', fontWeight: 'bold' }}>{row.clearTimeSeconds}s</td>
+                          <td style={{ padding: '10px', color: '#4ade80', fontWeight: 'bold' }}>{row.totalTeamDamage?.toLocaleString()}</td>
+                        </tr>
+                      ))
+                    )
                   ) : leaderboardData.length === 0 ? (
                     <tr>
                       <td colSpan={5} style={{textAlign: 'center', padding: '20px'}}>No records found!</td>
                     </tr>
                   ) : (
                     leaderboardData.map((row, idx) => {
+
                       if (leaderboardTab === 'RANKED') {
                         const badge = getTierBadge(row.rating);
                         const totalGames = (row.wins || 0) + (row.losses || 0);
@@ -1778,8 +2115,442 @@ export default function Game() {
         </div>
       )}
 
+      {/* Live In-Game Co-Op Raid Party Meter */}
+      {isPlaying && isCoopRaidMode && raidTeamStats.length > 0 && (
+        <div className={styles.raidDpsMeter}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: '4px' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <FontAwesomeIcon icon={faSkull} /> Raid Party ({raidTeamStats.filter(p => !p.isDead).length}/{raidTeamStats.length})
+            </span>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Live DPS</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {raidTeamStats.map((p, idx) => (
+              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', opacity: p.isDead ? 0.5 : 1 }}>
+                <span style={{ color: p.isDead ? '#ef4444' : p.id === socketRef.current?.id ? '#38bdf8' : '#e2e8f0', fontWeight: p.id === socketRef.current?.id ? 'bold' : 'normal' }}>
+                  {p.isDead ? '💀 ' : '⚔️ '}{p.username}
+                </span>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ color: '#4ade80', fontWeight: 'bold' }}>{p.damageDealt?.toLocaleString()} DMG</span>
+                  <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{p.wpm || 0} WPM</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Boss Selection Modal */}
+      {showBossModal && !isPlaying && (
+        <div className={styles.overlay}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '850px', maxHeight: '88vh', overflowY: 'auto' }}>
+            <h2 className={styles.title} style={{ fontSize: '2.6rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+              <FontAwesomeIcon icon={faSkull} style={{ color: '#ef4444' }} /> Boss Rush & Raids
+            </h2>
+            <p className={styles.scoreText} style={{ marginBottom: '1.2rem', fontSize: '0.95rem' }}>
+              Battle colossal bosses with phase shifts, meteor storms, glitch overrides, and co-op multiplayer.
+            </p>
+
+            {/* Boss Dossier Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem', width: '100%' }}>
+              {Object.values(BOSSES).map((boss) => {
+                const isSelected = selectedBossId === boss.id;
+                return (
+                  <div
+                    key={boss.id}
+                    className={`${styles.bossCard} ${isSelected ? styles.bossCardActive : ''}`}
+                    onClick={() => setSelectedBossId(boss.id)}
+                    style={{
+                      borderLeft: `4px solid ${boss.themeColor}`,
+                      background: isSelected ? 'rgba(30, 41, 59, 0.95)' : 'rgba(15, 23, 42, 0.7)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontSize: '1.6rem', marginBottom: '4px' }}>{boss.icon}</div>
+                        <h4 style={{ margin: 0, fontSize: '1.1rem', color: boss.themeColor }}>{boss.name.split(',')[0]}</h4>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{boss.subtitle}</div>
+                      </div>
+                      <span className={styles.bossBadge} style={{ background: `${boss.themeColor}33`, color: boss.themeColor }}>
+                        {boss.id.toUpperCase()}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '0.8rem', color: '#cbd5e1', fontStyle: 'italic', margin: '4px 0' }}>
+                      "{boss.flavorQuote.slice(0, 75)}..."
+                    </div>
+
+                    <div style={{ background: 'rgba(0,0,0,0.3)', padding: '8px', borderRadius: '6px', fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#94a3b8' }}>Base Health:</span>
+                        <span style={{ color: '#4ade80', fontWeight: 'bold' }}>{boss.baseHp.toLocaleString()} HP</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#94a3b8' }}>Key Spells:</span>
+                        <span style={{ color: '#fca5a5' }}>{boss.abilities.map(a => a.name).join(', ')}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#94a3b8' }}>Reward Title:</span>
+                        <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>{boss.titleReward.name}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Difficulty Selector */}
+            <div style={{ width: '100%', marginBottom: '1.5rem', background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '10px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '0.8rem', color: '#e2e8f0', textAlign: 'center' }}>
+                Encounter Difficulty
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.8rem' }}>
+                {(['normal', 'heroic', 'mythic'] as BossDifficulty[]).map((diff) => {
+                  const diffInfo = BOSS_DIFFICULTIES[diff];
+                  const isSelected = selectedDifficulty === diff;
+                  return (
+                    <button
+                      key={diff}
+                      className={styles.btnSmall}
+                      onClick={() => setSelectedDifficulty(diff)}
+                      style={{
+                        padding: '10px',
+                        background: isSelected ? diffInfo.color : 'rgba(255,255,255,0.06)',
+                        color: isSelected ? '#000' : '#fff',
+                        fontWeight: 'bold',
+                        border: isSelected ? 'none' : '1px solid rgba(255,255,255,0.1)'
+                      }}
+                    >
+                      <div>{diffInfo.label}</div>
+                      <div style={{ fontSize: '0.75rem', opacity: 0.85 }}>{diffInfo.hpMultiplier}x HP • {diffInfo.speedMultiplier}x Spd</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+
+            {/* Mode Selector (Solo vs Co-Op Raid) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', width: '100%', marginBottom: '1.5rem' }}>
+              <button
+                className={styles.btnSmall}
+                onClick={() => setIsCoopRaidMode(false)}
+                style={{
+                  padding: '12px',
+                  background: !isCoopRaidMode ? '#38bdf8' : 'rgba(255,255,255,0.08)',
+                  color: !isCoopRaidMode ? '#000' : '#fff',
+                  fontWeight: 'bold',
+                  fontSize: '0.95rem'
+                }}
+              >
+                ⚔️ Solo Boss Duel
+              </button>
+              <button
+                className={styles.btnSmall}
+                onClick={() => setIsCoopRaidMode(true)}
+                style={{
+                  padding: '12px',
+                  background: isCoopRaidMode ? '#38bdf8' : 'rgba(255,255,255,0.08)',
+                  color: isCoopRaidMode ? '#000' : '#fff',
+                  fontWeight: 'bold',
+                  fontSize: '0.95rem'
+                }}
+              >
+                🛡️ Co-Op Raid (1-4 Players)
+              </button>
+            </div>
+
+            {/* Launch Actions */}
+            {!isCoopRaidMode ? (
+              <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+                <button
+                  className={styles.btn}
+                  style={{ flex: 2, background: 'linear-gradient(135deg, #dc2626, #991b1b)', fontSize: '1.2rem', padding: '14px' }}
+                  onClick={() => startSoloBossFight(selectedBossId, selectedDifficulty)}
+                >
+                  ⚔️ Engage {BOSSES[selectedBossId]?.name.split(',')[0]} Solo
+                </button>
+                <button
+                  className={styles.btnSmall}
+                  style={{ flex: 1, background: 'rgba(255,255,255,0.1)' }}
+                  onClick={() => setShowBossModal(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                  <button
+                    className={styles.btn}
+                    style={{ flex: 1, background: 'linear-gradient(135deg, #10b981, #059669)', fontSize: '1.1rem', padding: '12px', marginTop: 0 }}
+                    onClick={() => {
+                      setShowBossModal(false);
+                      createRaidLobby(selectedBossId, selectedDifficulty);
+                    }}
+                  >
+                    🛡️ Create Raid Room
+                  </button>
+                </div>
+                <div className={styles.inputGroup} style={{ width: '100%' }}>
+                  <input
+                    type="text"
+                    className={styles.input}
+                    placeholder="Enter Raid Code (e.g. RAID-A1B2)"
+                    value={raidLobbyCodeInput}
+                    onChange={(e) => setRaidLobbyCodeInput(e.target.value)}
+                  />
+                  <button
+                    className={styles.btnSmall}
+                    onClick={() => {
+                      setShowBossModal(false);
+                      joinRaidLobby(raidLobbyCodeInput);
+                    }}
+                  >
+                    Join Raid
+                  </button>
+                </div>
+                <button
+                  className={styles.btnSmall}
+                  style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)' }}
+                  onClick={() => setShowBossModal(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Co-Op Raid Party Lobby Modal */}
+      {raidLobbyData && !isPlaying && (
+        <div className={styles.overlay}>
+          <div className={styles.multiplayerBox} style={{ width: '90%', maxWidth: '540px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.4rem', color: '#f87171' }}>⚔️ {raidLobbyData.bossName}</h3>
+                <span className={styles.bossBadge} style={{ background: 'rgba(251, 146, 60, 0.2)', color: '#fb923c' }}>
+                  {raidLobbyData.difficulty.toUpperCase()} RAID
+                </span>
+              </div>
+              <button
+                className={styles.btnSmall}
+                onClick={() => {
+                  navigator.clipboard.writeText(raidLobbyData.roomId);
+                  alert('Raid Code copied to clipboard: ' + raidLobbyData.roomId);
+                }}
+                style={{ background: 'rgba(56, 189, 248, 0.2)', border: '1px solid #38bdf8', color: '#38bdf8' }}
+              >
+                <FontAwesomeIcon icon={faCopy} /> {raidLobbyData.roomId}
+              </button>
+            </div>
+
+            {/* 4 Party Member Slots */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.5rem', width: '100%' }}>
+              {[0, 1, 2, 3].map((slotIdx) => {
+                const member = raidLobbyData.players[slotIdx];
+                if (member) {
+                  return (
+                    <div key={slotIdx} className={`${styles.raidPartySlot} ${styles.raidPartySlotActive}`}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <FontAwesomeIcon icon={member.isHost ? faCrown : faUser} style={{ color: member.isHost ? '#fbbf24' : '#38bdf8' }} />
+                        <div>
+                          <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
+                            {member.username} {member.id === socketRef.current?.id ? '(You)' : ''}
+                          </div>
+                          <span className={styles.tierBadge} style={{ color: getTierBadge(member.rating).color, background: getTierBadge(member.rating).bg, border: `1px solid ${getTierBadge(member.rating).border}`, fontSize: '0.7rem', padding: '1px 6px' }}>
+                            {member.rating} Elo
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        {member.isHost ? (
+                          <span style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: '0.85rem' }}>👑 Raid Leader</span>
+                        ) : member.isReady ? (
+                          <span style={{ color: '#4ade80', fontWeight: 'bold', fontSize: '0.85rem' }}>✅ Ready</span>
+                        ) : (
+                          <span style={{ color: '#fcd34d', fontSize: '0.85rem' }}>⏳ Preparing...</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={slotIdx} className={styles.raidPartySlot} style={{ opacity: 0.4 }}>
+                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Open Slot {slotIdx + 1}</span>
+                    <span style={{ color: '#64748b', fontSize: '0.8rem' }}>Waiting for raider...</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Raid Party Actions */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', width: '100%' }}>
+              {raidLobbyData.players.find(p => p.id === socketRef.current?.id)?.isHost ? (
+                <button
+                  className={styles.btn}
+                  style={{
+                    width: '100%',
+                    background: 'linear-gradient(135deg, #dc2626, #991b1b)',
+                    fontSize: '1.2rem',
+                    padding: '14px',
+                    boxShadow: '0 0 20px rgba(220, 38, 38, 0.4)'
+                  }}
+                  onClick={startRaidMatch}
+                >
+                  ⚔️ Engage Boss Now!
+                </button>
+              ) : (
+                <button
+                  className={styles.btn}
+                  style={{
+                    width: '100%',
+                    background: raidLobbyData.players.find(p => p.id === socketRef.current?.id)?.isReady
+                      ? 'linear-gradient(135deg, #eab308, #ca8a04)'
+                      : 'linear-gradient(135deg, #10b981, #059669)',
+                    fontSize: '1.2rem',
+                    padding: '14px'
+                  }}
+                  onClick={toggleRaidReady}
+                >
+                  {raidLobbyData.players.find(p => p.id === socketRef.current?.id)?.isReady ? '❌ Unready' : '✅ Ready Up'}
+                </button>
+              )}
+
+              <button
+                className={styles.btnSmall}
+                style={{ width: '100%', background: 'rgba(255,255,255,0.1)' }}
+                onClick={leaveRaidLobby}
+              >
+                Leave Raid Party
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Boss Defeated Victory Celebration Modal */}
+      {bossVictoryData && (
+        <div className={styles.overlay} style={{ zIndex: 110 }}>
+          <div className={`${styles.multiplayerBox} ${styles.victoryModal}`} style={{ width: '90%', maxWidth: '600px', textAlign: 'center' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '8px' }}>🏆</div>
+            <h2 className={styles.title} style={{ fontSize: '2.8rem', color: '#fbbf24', marginBottom: '4px' }}>
+              VICTORY!
+            </h2>
+            <div style={{ fontSize: '1.2rem', color: '#f8fafc', fontWeight: 'bold', marginBottom: '8px' }}>
+              {bossVictoryData.boss.name} Defeated!
+            </div>
+            <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+              "{bossVictoryData.boss.defeatQuote}"
+            </div>
+
+            {/* Unlocked Reward Title Banner */}
+            <div style={{ background: 'rgba(251, 191, 36, 0.15)', border: '1px solid #fbbf24', borderRadius: '10px', padding: '12px', marginBottom: '1.5rem' }}>
+              <div style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: '0.9rem' }}>🎉 TITLE REWARD UNLOCKED</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#fff', marginTop: '4px' }}>
+                {bossVictoryData.boss.titleReward.name}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#fcd34d' }}>{bossVictoryData.boss.titleReward.description}</div>
+            </div>
+
+            {/* Raid Party DPS Rankings or Solo Stats */}
+            {bossVictoryData.rankings && bossVictoryData.rankings.length > 0 ? (
+              <div style={{ marginBottom: '1.5rem', width: '100%' }}>
+                <h4 style={{ margin: '0 0 10px 0', color: '#38bdf8', textAlign: 'left' }}>Party Combat Contribution</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {bossVictoryData.rankings.map((r, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.3)', padding: '8px 12px', borderRadius: '6px' }}>
+                      <span style={{ fontWeight: 'bold', color: idx === 0 ? '#fbbf24' : '#fff' }}>
+                        {idx === 0 ? '👑 MVP ' : `#${idx + 1} `}{r.username}
+                      </span>
+                      <div style={{ display: 'flex', gap: '12px' }}>
+                        <span style={{ color: '#4ade80', fontWeight: 'bold' }}>{r.damageDealt?.toLocaleString()} DMG</span>
+                        <span style={{ color: '#94a3b8' }}>{r.wpm || 0} WPM</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '10px', marginBottom: '1.5rem' }}>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Damage Dealt</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#4ade80' }}>{bossVictoryData.stats.totalDamage.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Average WPM</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#38bdf8' }}>{bossVictoryData.stats.wpm}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Clear Time</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fbbf24' }}>{bossVictoryData.clearTimeSeconds}s</div>
+                </div>
+              </div>
+            )}
+
+            <button
+              className={styles.btn}
+              style={{ width: '100%', background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}
+              onClick={() => {
+                setBossVictoryData(null);
+                returnToMenu();
+              }}
+            >
+              Return to Menu
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Boss Defeat / Raid Wipe Modal */}
+      {bossDefeatData && (
+        <div className={styles.overlay} style={{ zIndex: 110 }}>
+          <div className={`${styles.multiplayerBox} ${styles.defeatModal}`} style={{ width: '90%', maxWidth: '500px', textAlign: 'center' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '8px' }}>💀</div>
+            <h2 className={styles.title} style={{ fontSize: '2.8rem', color: '#ef4444', marginBottom: '4px' }}>
+              RAID WIPED
+            </h2>
+            <div style={{ fontSize: '1.2rem', color: '#f8fafc', fontWeight: 'bold', marginBottom: '1rem' }}>
+              {bossDefeatData.bossName} proved too powerful!
+            </div>
+            {bossDefeatData.remainingHp !== undefined && bossDefeatData.maxHp && (
+              <div style={{ background: 'rgba(0,0,0,0.4)', padding: '12px', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '4px' }}>Boss Remaining Health</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ef4444' }}>
+                  {bossDefeatData.remainingHp.toLocaleString()} / {bossDefeatData.maxHp.toLocaleString()} HP ({Math.round((bossDefeatData.remainingHp / bossDefeatData.maxHp) * 100)}%)
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+              <button
+                className={styles.btn}
+                style={{ flex: 1, background: 'linear-gradient(135deg, #dc2626, #991b1b)' }}
+                onClick={() => {
+                  setBossDefeatData(null);
+                  setShowBossModal(true);
+                }}
+              >
+                Try Again
+              </button>
+              <button
+                className={styles.btnSmall}
+                style={{ flex: 1, background: 'rgba(255,255,255,0.1)' }}
+                onClick={() => {
+                  setBossDefeatData(null);
+                  returnToMenu();
+                }}
+              >
+                Menu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Auto Matchmaking Searching Overlay */}
       {isSearchingAuto && !isPlaying && (
+
         <div className={styles.overlay}>
           <h2 className={styles.title} style={{ fontSize: '3rem' }}>Finding Match...</h2>
           <p className={styles.scoreText}>Queue: {matchDuration}s Ranked Matches</p>
