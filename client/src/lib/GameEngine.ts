@@ -268,9 +268,10 @@ export class GameEngine {
     this.lastTime = performance.now();
     this.notifyState();
     this.sound.playBossRoar();
-    this.sound.startGameplayBGM();
+    this.sound.startBossBGM(boss.id, 1);
     this.loop(this.lastTime);
   }
+
 
   public stop() {
 
@@ -901,10 +902,11 @@ export class GameEngine {
         // Check Phase 2 Trigger
         if (this.bossPhase === 1 && this.bossHp <= this.bossMaxHp * 0.5 && this.bossHp > 0) {
           this.bossPhase = 2;
-          this.sound.playBossRoar();
+          this.sound.updateBossBGMPhase(2);
           this.shakeIntensity = 25;
           this.bossDialogue = { text: this.bossEntity.phase2Quote, timer: 5000 };
         }
+
 
         // Check Boss Defeat
         if (this.bossHp <= 0) {

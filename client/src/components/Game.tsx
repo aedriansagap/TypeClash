@@ -170,7 +170,9 @@ export default function Game() {
   const [showBossModal, setShowBossModal] = useState(false);
   const [selectedBossId, setSelectedBossId] = useState<string>('ignis');
   const [selectedDifficulty, setSelectedDifficulty] = useState<BossDifficulty>('normal');
+  const [previewingBossId, setPreviewingBossId] = useState<string | null>(null);
   const [isCoopRaidMode, setIsCoopRaidMode] = useState(false);
+
   const [raidLobbyCodeInput, setRaidLobbyCodeInput] = useState('');
   const [raidLobbyData, setRaidLobbyData] = useState<{
     roomId: string;
@@ -1045,7 +1047,23 @@ export default function Game() {
   };
 
   // Boss Rush Actions
+  const handlePreviewBossMusic = (bossId: string) => {
+    if (soundEngineRef.current) {
+      if (previewingBossId === bossId) {
+        soundEngineRef.current.stopBossBGM();
+        setPreviewingBossId(null);
+      } else {
+        soundEngineRef.current.previewBossTrack(bossId, 8500);
+        setPreviewingBossId(bossId);
+      }
+    }
+  };
+
   const startSoloBossFight = (bossId: string = selectedBossId, difficulty: BossDifficulty = selectedDifficulty) => {
+    if (previewingBossId) {
+      soundEngineRef.current?.stopBossBGM();
+      setPreviewingBossId(null);
+    }
     setShowBossModal(false);
     setIsSinglePlayer(true);
     setIsCoopRaidMode(false);
@@ -1065,7 +1083,12 @@ export default function Game() {
   };
 
   const createRaidLobby = (bossId: string = selectedBossId, difficulty: BossDifficulty = selectedDifficulty) => {
+    if (previewingBossId) {
+      soundEngineRef.current?.stopBossBGM();
+      setPreviewingBossId(null);
+    }
     const boss = BOSSES[bossId] || BOSSES.ignis;
+
     socketRef.current?.emit('create_raid_lobby', {
       bossId,
       bossName: boss.name,
@@ -3252,6 +3275,7 @@ export default function Game() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem', width: '100%' }}>
               {Object.values(BOSSES).map((boss) => {
                 const isSelected = selectedBossId === boss.id;
+                const isPreviewingThis = previewingBossId === boss.id;
                 return (
                   <div
                     key={boss.id}
@@ -3291,10 +3315,53 @@ export default function Game() {
                         <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>{boss.titleReward.name}</span>
                       </div>
                     </div>
+
+                    {/* Boss Theme Soundtrack & Preview */}
+                    <div style={{
+                      marginTop: '6px',
+                      padding: '6px 8px',
+                      background: isPreviewingThis ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.04)',
+                      border: isPreviewingThis ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      boxShadow: isPreviewingThis ? '0 0 12px rgba(16, 185, 129, 0.3)' : 'none'
+                    }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span>🎵</span>
+                          <span style={{ color: isPreviewingThis ? '#4ade80' : '#e2e8f0', fontWeight: 'bold' }}>{boss.themeMusic.trackTitle}</span>
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: '#38bdf8' }}>
+                          {boss.themeMusic.genre.split('/')[0]} • {boss.themeMusic.bpm} BPM
+                        </div>
+                      </div>
+                      
+                      <button
+                        className={styles.btnSmall}
+                        style={{
+                          padding: '3px 8px',
+                          fontSize: '0.7rem',
+                          background: isPreviewingThis ? '#10b981' : 'rgba(255,255,255,0.1)',
+                          color: isPreviewingThis ? '#000' : '#fff',
+                          border: isPreviewingThis ? '1px solid #34d399' : '1px solid rgba(255,255,255,0.15)',
+                          fontWeight: 'bold'
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePreviewBossMusic(boss.id);
+                        }}
+                        title="Preview Boss Soundtrack Theme"
+                      >
+                        {isPreviewingThis ? '⏹️ Stop' : '▶ Preview'}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
+
 
             {/* Difficulty Selector */}
             <div style={{ width: '100%', marginBottom: '1.5rem', background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '10px' }}>
@@ -3370,7 +3437,13 @@ export default function Game() {
                 <button
                   className={styles.btnSmall}
                   style={{ flex: 1, background: 'rgba(255,255,255,0.1)' }}
-                  onClick={() => setShowBossModal(false)}
+                  onClick={() => {
+                    if (previewingBossId) {
+                      soundEngineRef.current?.stopBossBGM();
+                      setPreviewingBossId(null);
+                    }
+                    setShowBossModal(false);
+                  }}
                 >
                   Cancel
                 </button>
@@ -3410,12 +3483,19 @@ export default function Game() {
                 <button
                   className={styles.btnSmall}
                   style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)' }}
-                  onClick={() => setShowBossModal(false)}
+                  onClick={() => {
+                    if (previewingBossId) {
+                      soundEngineRef.current?.stopBossBGM();
+                      setPreviewingBossId(null);
+                    }
+                    setShowBossModal(false);
+                  }}
                 >
                   Cancel
                 </button>
               </div>
             )}
+
           </div>
         </div>
       )}

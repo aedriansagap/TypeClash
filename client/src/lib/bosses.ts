@@ -8,6 +8,13 @@ export interface BossAbility {
   warningText: string;
 }
 
+export interface BossThemeMusic {
+  trackTitle: string;
+  genre: string;
+  bpm: number;
+  description: string;
+}
+
 export interface BossConfig {
   id: string;
   name: string;
@@ -26,6 +33,7 @@ export interface BossConfig {
   flavorQuote: string;
   phase2Quote: string;
   defeatQuote: string;
+  themeMusic: BossThemeMusic;
 }
 
 export type BossDifficulty = 'normal' | 'heroic' | 'mythic';
@@ -73,7 +81,13 @@ export const BOSSES: Record<string, BossConfig> = {
     },
     flavorQuote: '"Your keystrokes will turn to ash before my eternal flame!"',
     phase2Quote: '"MOLTEN CORE OVERDRIVE! BURN IN PURIFYING FIRE!"',
-    defeatQuote: '"My flames... extinguished by the speed of words..."'
+    defeatQuote: '"My flames... extinguished by the speed of words..."',
+    themeMusic: {
+      trackTitle: 'Infernal Cataclysm',
+      genre: 'Industrial Heavy Metal / Rock',
+      bpm: 140,
+      description: 'Driving rock bassline, aggressive percussion, and fiery sawtooth lead arpeggios.'
+    }
   },
   glitch: {
     id: 'glitch',
@@ -111,7 +125,13 @@ export const BOSSES: Record<string, BossConfig> = {
     },
     flavorQuote: '"Syntax error detected. Initiating player termination subroutine."',
     phase2Quote: '"OVERCLOCKING PROCESSORS! RUNNING MALWARE RECURSION!"',
-    defeatQuote: '"Kernel panic... fatal crash... process terminated..."'
+    defeatQuote: '"Kernel panic... fatal crash... process terminated..."',
+    themeMusic: {
+      trackTitle: 'Cyber Matrix Overclock',
+      genre: 'Cyberpunk Darksynth / Chiptune',
+      bpm: 135,
+      description: '16th-note synthwave arpeggios, resonant lowpass sweeps, and syncopated square bass.'
+    }
   },
   chronos: {
     id: 'chronos',
@@ -149,9 +169,16 @@ export const BOSSES: Record<string, BossConfig> = {
     },
     flavorQuote: '"Time bows to no one, and your time is at an end."',
     phase2Quote: '"ENTROPY CONSUMES ALL! WITNESS THE BIRTH OF THE VOID!"',
-    defeatQuote: '"The continuum fractures... time flows freely once more..."'
+    defeatQuote: '"The continuum fractures... time flows freely once more..."',
+    themeMusic: {
+      trackTitle: 'Temporal Apocalypse',
+      genre: 'Cinematic Dark Cosmic Orchestral',
+      bpm: 120,
+      description: 'Subterranean sub-bass, harmonic minor choir progression, and cosmic impact polyrhythms.'
+    }
   }
 };
+
 
 export function calculateBossDamage(wordLength: number, combo: number, isGolden: boolean = false): { damage: number; isCrit: boolean } {
   const baseDmg = wordLength * (16 + Math.min(combo, 50) * 3);
