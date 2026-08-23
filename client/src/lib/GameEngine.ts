@@ -4,6 +4,8 @@ import { Dictionary, Difficulty, GameModifiers } from './Dictionary';
 import { AdaptiveDifficulty } from './AdaptiveDifficulty';
 import { SoundEngine } from './SoundEngine';
 import { BossConfig, BOSSES, BossDifficulty, BOSS_DIFFICULTIES, calculateBossDamage } from './bosses';
+import { WordPack } from './wordPacks';
+
 
 export interface GameState {
   lives: number;
@@ -129,9 +131,17 @@ export class GameEngine {
   public onBossDefeated?: (boss: BossConfig, clearTimeSeconds: number, stats: { totalDamage: number; wpm: number; maxCombo: number; accuracy: number }) => void;
   public onBossSpellCast?: (abilityId: string) => void;
 
+  // Custom Word Pack
+  public activeWordPack: WordPack | null = null;
+
   // Customization
   private theme: ThemeConfig;
   private fontFamily: string;
+
+  public setWordPack(pack: WordPack | null) {
+    this.activeWordPack = pack;
+  }
+
 
   constructor(canvas: HTMLCanvasElement, theme: ThemeConfig | undefined, fontFamily: string | undefined, soundEngine: SoundEngine) {
     this.canvas = canvas;
@@ -433,8 +443,9 @@ export class GameEngine {
       // Summons 4 fast-falling meteors
       const rect = this.canvas.getBoundingClientRect();
       for (let i = 0; i < 4; i++) {
-        const text = Dictionary.getWord(this.random, Difficulty.HARD, undefined, 1.5);
+        const text = Dictionary.getWord(this.random, Difficulty.HARD, undefined, 1.5, this.activeWordPack?.words);
         this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
+
 
         const textWidth = this.ctx.measureText(text).width;
         const minX = textWidth / 2 + 20;
@@ -786,9 +797,10 @@ export class GameEngine {
     const diff = mlPrediction.difficulty;
     const modelMods = mlPrediction.mods;
     
-    const text = Dictionary.getWord(this.random, diff, this.modifiers || modelMods, progressScore);
+    const text = Dictionary.getWord(this.random, diff, this.modifiers || modelMods, progressScore, this.activeWordPack?.words);
     
     // Ensure word spawns fully within horizontal bounds
+
     this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
     const textWidth = this.ctx.measureText(text).width;
     const padding = 20;

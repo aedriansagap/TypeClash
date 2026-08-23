@@ -5,7 +5,9 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { User, Score, RaidScore } from './models';
+import { User, Score, RaidScore, WordPack } from './models';
+
+
 
 
 // Connect to MongoDB
@@ -549,6 +551,354 @@ app.post('/api/raid/victory', async (req, res) => {
   res.json({ success: true, id: 'raid_' + Date.now() });
 });
 
+// --- WORD PACKS & WORKSHOP API --- //
+
+const DEFAULT_WORD_PACKS = [
+  {
+    id: 'pack_web_dev',
+    title: '💻 Full-Stack Web Dev',
+    description: 'Modern JavaScript, TypeScript, React hooks, and backend architecture syntax.',
+    category: 'coding',
+    icon: '💻',
+    color: '#38bdf8',
+    difficulty: 'intermediate',
+    tags: ['javascript', 'typescript', 'react', 'node', 'webdev', 'frontend'],
+    author: 'TypeClash Official',
+    isOfficial: true,
+    likesCount: 342,
+    playsCount: 1850,
+    words: [
+      'async', 'await', 'promise', 'callback', 'closure', 'middleware', 'typescript', 'interface',
+      'component', 'useEffect', 'useState', 'useMemo', 'useCallback', 'prototype', 'hydration',
+      'tailwind', 'graphql', 'websocket', 'postgres', 'debounce', 'throttle', 'immutable', 'polymorphic',
+      'observable', 'reducer', 'singleton', 'dependency', 'refactor', 'monorepo', 'webpack', 'turbopack',
+      'prerender', 'endpoint', 'authorization', 'cryptography', 'sanitization', 'concurrency', 'deadlock'
+    ],
+    createdAt: new Date('2026-08-01')
+  },
+  {
+    id: 'pack_python_algo',
+    title: '🐍 Python & Algorithms',
+    description: 'Data structures, computer science algorithms, and quintessential Python concepts.',
+    category: 'coding',
+    icon: '🐍',
+    color: '#10b981',
+    difficulty: 'intermediate',
+    tags: ['python', 'algorithms', 'data-structures', 'cs', 'backend'],
+    author: 'TypeClash Official',
+    isOfficial: true,
+    likesCount: 289,
+    playsCount: 1420,
+    words: [
+      'generator', 'decorator', 'comprehension', 'recursion', 'backtracking', 'memoization',
+      'quicksort', 'mergesort', 'binarysearch', 'polymorphism', 'inheritance', 'concurrency',
+      'multithreading', 'dunder', 'dataclass', 'lambda', 'hashmap', 'adjacency', 'dijkstra',
+      'dynamicprogramming', 'asymptotic', 'logarithmic', 'pseudocode', 'bitmask', 'topological',
+      'traversal', 'depthfirst', 'breadthfirst', 'fibonacci', 'heuristic', 'monotonic', 'palindrome'
+    ],
+    createdAt: new Date('2026-08-03')
+  },
+  {
+    id: 'pack_medical_anatomy',
+    title: '🧬 Medical & Neuroanatomy',
+    description: 'High-yield terminology from human anatomy, neurobiology, and clinical medicine.',
+    category: 'science',
+    icon: '🧬',
+    color: '#ec4899',
+    difficulty: 'expert',
+    tags: ['medical', 'anatomy', 'neuroscience', 'biology', 'science'],
+    author: 'TypeClash Official',
+    isOfficial: true,
+    likesCount: 195,
+    playsCount: 890,
+    words: [
+      'hippocampus', 'mitochondria', 'neurotransmitter', 'synapse', 'cerebellum', 'vasodilation',
+      'myocardial', 'hemoglobin', 'homeostasis', 'epithelial', 'parasympathetic', 'endorphin',
+      'acetylcholine', 'dopamine', 'norepinephrine', 'myelin', 'axon', 'dendrite', 'hypophysis',
+      'pathogen', 'leukocyte', 'phagocytosis', 'cardiovascular', 'nephron', 'glomerulus',
+      'osteoblast', 'neurogenesis', 'coagulation', 'tachycardia', 'bradycardia', 'neuroplasticity'
+    ],
+    createdAt: new Date('2026-08-05')
+  },
+  {
+    id: 'pack_sat_gre_vocab',
+    title: '📚 SAT & GRE Elite Lexicon',
+    description: 'Challenging, sophisticated vocabulary curated for competitive scholars and writers.',
+    category: 'literature',
+    icon: '📚',
+    color: '#fbbf24',
+    difficulty: 'expert',
+    tags: ['vocab', 'sat', 'gre', 'english', 'literature', 'lexicon'],
+    author: 'TypeClash Official',
+    isOfficial: true,
+    likesCount: 412,
+    playsCount: 2310,
+    words: [
+      'ephemeral', 'ubiquitous', 'obfuscate', 'serendipity', 'surreptitious', 'esoteric',
+      'perfunctory', 'magnanimous', 'perspicacious', 'capricious', 'sycophant', 'quintessential',
+      'obsequious', 'anachronism', 'cacophony', 'enervate', 'fastidious', 'garrulous',
+      'iconoclast', 'juxtapose', 'laconic', 'mellifluous', 'nefarious', 'ostentatious',
+      'panacea', 'quixotic', 'recalcitrant', 'sanguine', 'trenchant', 'vicarious', 'zephyr'
+    ],
+    createdAt: new Date('2026-08-07')
+  },
+  {
+    id: 'pack_cyberpunk_hacker',
+    title: '🌌 Cyberpunk Hacker',
+    description: 'Futuristic sci-fi jargon, cybernetic upgrades, and dystopian netrunner terms.',
+    category: 'pop_culture',
+    icon: '🌌',
+    color: '#a855f7',
+    difficulty: 'intermediate',
+    tags: ['cyberpunk', 'scifi', 'hacker', 'future', 'gaming'],
+    author: 'TypeClash Official',
+    isOfficial: true,
+    likesCount: 520,
+    playsCount: 3100,
+    words: [
+      'neuralink', 'cyberdeck', 'megacorp', 'biometrics', 'subdermal', 'nanotech', 'quantum',
+      'exoskeleton', 'cryostasis', 'hologram', 'dystopia', 'augment', 'singularity', 'firewall',
+      'mainframe', 'overdrive', 'cyberware', 'netrunner', 'synthetic', 'blackice', 'cryptochip',
+      'stealthsuit', 'telemetry', 'nanobots', 'hyperdrive', 'orbital', 'cybernetics', 'matrix'
+    ],
+    createdAt: new Date('2026-08-10')
+  },
+  {
+    id: 'pack_anime_romaji',
+    title: '🌸 Anime & Japanese (Romaji)',
+    description: 'Iconic anime techniques, shonen shouts, and beloved Japanese phrases.',
+    category: 'languages',
+    icon: '🌸',
+    color: '#f43f5e',
+    difficulty: 'beginner',
+    tags: ['anime', 'japanese', 'romaji', 'manga', 'gaming'],
+    author: 'TypeClash Official',
+    isOfficial: true,
+    likesCount: 680,
+    playsCount: 4200,
+    words: [
+      'kamehameha', 'rasengan', 'itadakimasu', 'sharingan', 'shinobi', 'tsundere', 'arigato',
+      'konnichiwa', 'senpai', 'shonen', 'bankai', 'getsuga', 'chocobo', 'kawaii', 'sugoi',
+      'daisuki', 'yoroshiku', 'gambatte', 'omoshiroi', 'bakemono', 'subarashii', 'matsuri',
+      'katana', 'zanpakuto', 'hokage', 'konoha', 'sasuke', 'naruto', 'tanjiro', 'nezuko'
+    ],
+    createdAt: new Date('2026-08-12')
+  }
+];
+
+const inMemoryWordPacks: any[] = [...DEFAULT_WORD_PACKS];
+
+// GET /api/wordpacks - List packs with filter, search, sort
+app.get('/api/wordpacks', async (req, res) => {
+  const { category, search, sort } = req.query;
+  const isDbConnected = mongoose.connection.readyState === 1;
+
+  let allPacks: any[] = [];
+
+  if (isDbConnected) {
+    try {
+      const filter: any = {};
+      if (category && category !== 'all') filter.category = category;
+      if (search) {
+        filter.$or = [
+          { title: { $regex: search as string, $options: 'i' } },
+          { description: { $regex: search as string, $options: 'i' } },
+          { tags: { $in: [(search as string).toLowerCase()] } }
+        ];
+      }
+      
+      let sortObj: any = { isOfficial: -1, likesCount: -1 };
+      if (sort === 'newest') sortObj = { createdAt: -1 };
+      if (sort === 'popular') sortObj = { playsCount: -1 };
+
+      const dbPacks = await WordPack.find(filter).sort(sortObj).limit(60);
+      if (dbPacks && dbPacks.length > 0) {
+        allPacks = dbPacks.map(p => ({
+          id: p._id.toString(),
+          title: p.title,
+          description: p.description,
+          category: p.category,
+          icon: p.icon,
+          color: p.color,
+          difficulty: p.difficulty,
+          words: p.words,
+          tags: p.tags,
+          author: p.author,
+          authorId: p.authorId?.toString(),
+          isOfficial: p.isOfficial,
+          likesCount: p.likesCount,
+          playsCount: p.playsCount,
+          createdAt: p.createdAt
+        }));
+      }
+    } catch (e) {
+      console.error('Database wordpacks error:', e);
+    }
+  }
+
+  // Fallback / merge with in-memory packs
+  if (allPacks.length === 0) {
+    allPacks = inMemoryWordPacks.map(p => ({ ...p }));
+  } else {
+    // Add official defaults if not in DB
+    for (const def of DEFAULT_WORD_PACKS) {
+      if (!allPacks.some(p => p.id === def.id || p.title === def.title)) {
+        allPacks.push({ ...def });
+      }
+    }
+  }
+
+  // Apply in-memory filtering if needed
+  if (category && category !== 'all') {
+    allPacks = allPacks.filter(p => p.category === category);
+  }
+  if (search) {
+    const q = (search as string).toLowerCase();
+    allPacks = allPacks.filter(p => 
+      p.title.toLowerCase().includes(q) || 
+      p.description.toLowerCase().includes(q) ||
+      (p.tags && p.tags.some((t: string) => t.toLowerCase().includes(q)))
+    );
+  }
+
+  if (sort === 'newest') {
+    allPacks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } else if (sort === 'popular') {
+    allPacks.sort((a, b) => (b.playsCount || 0) - (a.playsCount || 0));
+  } else {
+    // default: official first, then likes
+    allPacks.sort((a, b) => (b.isOfficial ? 1 : 0) - (a.isOfficial ? 1 : 0) || (b.likesCount || 0) - (a.likesCount || 0));
+  }
+
+  res.json(allPacks);
+});
+
+// GET /api/wordpacks/:id - Get specific pack
+app.get('/api/wordpacks/:id', async (req, res) => {
+  const packId = req.params.id;
+  const isDbConnected = mongoose.connection.readyState === 1;
+
+  if (isDbConnected) {
+    try {
+      const p = await WordPack.findById(packId);
+      if (p) {
+        return res.json({
+          id: p._id.toString(),
+          title: p.title,
+          description: p.description,
+          category: p.category,
+          icon: p.icon,
+          color: p.color,
+          difficulty: p.difficulty,
+          words: p.words,
+          tags: p.tags,
+          author: p.author,
+          authorId: p.authorId?.toString(),
+          isOfficial: p.isOfficial,
+          likesCount: p.likesCount,
+          playsCount: p.playsCount,
+          createdAt: p.createdAt
+        });
+      }
+    } catch (e) {}
+  }
+
+  const mem = inMemoryWordPacks.find(p => p.id === packId || p._id === packId);
+  if (mem) return res.json(mem);
+
+  res.status(404).json({ error: 'Word pack not found' });
+});
+
+// POST /api/wordpacks - Create custom word pack
+app.post('/api/wordpacks', async (req, res) => {
+  const { title, description, category, icon, color, difficulty, words, tags, author, authorId } = req.body;
+
+  if (!title || title.trim().length < 3) {
+    return res.status(400).json({ error: 'Pack title must be at least 3 characters' });
+  }
+  if (!words || !Array.isArray(words) || words.length < 10) {
+    return res.status(400).json({ error: 'Word pack must contain at least 10 words' });
+  }
+
+  // Deduplicate and sanitize words
+  const cleanWords = Array.from(new Set(words.map((w: string) => w.trim().toLowerCase()).filter((w: string) => w.length >= 2)));
+  if (cleanWords.length < 10) {
+    return res.status(400).json({ error: 'Word pack must contain at least 10 valid words' });
+  }
+
+  const newPackData = {
+    id: `pack_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    title: title.trim(),
+    description: description ? description.trim() : 'Community custom word pack',
+    category: category || 'general',
+    icon: icon || '📦',
+    color: color || '#38bdf8',
+    difficulty: difficulty || 'intermediate',
+    words: cleanWords,
+    tags: tags && Array.isArray(tags) ? tags : [],
+    author: author || 'Community Typer',
+    authorId: authorId || undefined,
+    isOfficial: false,
+    likesCount: 1,
+    playsCount: 0,
+    createdAt: new Date()
+  };
+
+  inMemoryWordPacks.unshift(newPackData);
+
+  if (mongoose.connection.readyState === 1) {
+    try {
+      const created = new WordPack(newPackData);
+      await created.save();
+      return res.json({ success: true, id: created._id.toString(), pack: newPackData });
+    } catch (e: any) {
+      console.error('Error saving word pack to database:', e);
+    }
+  }
+
+  res.json({ success: true, id: newPackData.id, pack: newPackData });
+});
+
+// POST /api/wordpacks/:id/like - Like a pack
+app.post('/api/wordpacks/:id/like', async (req, res) => {
+  const packId = req.params.id;
+  const isDbConnected = mongoose.connection.readyState === 1;
+
+  // Update in-memory
+  const mem = inMemoryWordPacks.find(p => p.id === packId || p._id === packId);
+  if (mem) {
+    mem.likesCount = (mem.likesCount || 0) + 1;
+  }
+
+  if (isDbConnected) {
+    try {
+      await WordPack.findByIdAndUpdate(packId, { $inc: { likesCount: 1 } });
+    } catch (e) {}
+  }
+
+  res.json({ success: true, likesCount: mem ? mem.likesCount : 1 });
+});
+
+// DELETE /api/wordpacks/:id - Delete pack
+app.delete('/api/wordpacks/:id', async (req, res) => {
+  const packId = req.params.id;
+  const isDbConnected = mongoose.connection.readyState === 1;
+
+  const idx = inMemoryWordPacks.findIndex(p => p.id === packId || p._id === packId);
+  if (idx !== -1) {
+    inMemoryWordPacks.splice(idx, 1);
+  }
+
+  if (isDbConnected) {
+    try {
+      await WordPack.findByIdAndDelete(packId);
+    } catch (e) {}
+  }
+
+  res.json({ success: true });
+});
+
+
 
 
 // --- SOCKET.IO --- //
@@ -579,6 +929,8 @@ interface RoomData {
   mods?: any;
   status: 'waiting' | 'playing' | 'finished';
   host?: string;
+  customWords?: string[];
+  wordPackTitle?: string;
 }
 
 interface RaidPlayer {
@@ -610,7 +962,10 @@ interface RaidRoomData {
   phase: number;
   status: 'lobby' | 'playing' | 'victory' | 'defeat';
   startTime?: number;
+  customWords?: string[];
+  wordPackTitle?: string;
 }
+
 
 const players = new Map<string, Player>();
 const rooms = new Map<string, RoomData>();
@@ -704,8 +1059,8 @@ setInterval(() => {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
-  socket.on('join_room', async (data: { roomId: string, duration?: number, userId?: string, username?: string, mods?: any }) => {
-    let { roomId, duration = 60, userId, username, mods } = data;
+  socket.on('join_room', async (data: { roomId: string, duration?: number, userId?: string, username?: string, mods?: any, customWords?: string[], wordPackTitle?: string }) => {
+    let { roomId, duration = 60, userId, username, mods, customWords, wordPackTitle } = data;
     if (typeof roomId !== 'string' || roomId.length > 10) return;
     if (username && !isValidUsername(username)) username = 'Guest';
     
@@ -733,12 +1088,14 @@ io.on('connection', (socket) => {
     
     let roomData = rooms.get(roomId);
     if (!roomData) {
-      roomData = { players: [], alivePlayers: [], duration, mods, status: 'waiting', host: socket.id };
+      roomData = { players: [], alivePlayers: [], duration, mods, status: 'waiting', host: socket.id, customWords, wordPackTitle };
       rooms.set(roomId, roomData);
     } else if (data.duration && roomData.players.length === 0) {
       roomData.duration = duration;
       roomData.mods = mods;
       roomData.host = socket.id;
+      if (customWords) roomData.customWords = customWords;
+      if (wordPackTitle) roomData.wordPackTitle = wordPackTitle;
     }
 
     if (!roomData.players.includes(socket.id)) {
@@ -754,6 +1111,7 @@ io.on('connection', (socket) => {
     }
     
     io.to(roomId).emit('lobby_update', {
+      wordPackTitle: roomData.wordPackTitle,
       players: roomData.players.map(id => {
         const p = players.get(id);
         const r = p?.rating || 1200;
@@ -782,6 +1140,8 @@ io.on('connection', (socket) => {
         duration: roomData.duration,
         roomId: player.roomId,
         mods: roomData.mods,
+        customWords: roomData.customWords,
+        wordPackTitle: roomData.wordPackTitle,
         players: roomData.players.map(id => {
           const p = players.get(id);
           const r = p?.rating || 1200;
@@ -790,6 +1150,7 @@ io.on('connection', (socket) => {
       });
     }
   });
+
 
   socket.on('find_match', async (data: { duration?: number, userId?: string, username?: string, mods?: any }) => {
     let { duration = 60, userId, username, mods } = data;
@@ -1007,7 +1368,7 @@ io.on('connection', (socket) => {
   // --- CO-OP RAID BOSS SOCKET HANDLERS --- //
   // ==========================================
 
-  socket.on('create_raid_lobby', ({ bossId, bossName, difficulty, userId, username, rating }) => {
+  socket.on('create_raid_lobby', ({ bossId, bossName, difficulty, userId, username, rating, customWords, wordPackTitle }) => {
     const roomId = 'RAID-' + Math.random().toString(36).substring(2, 7).toUpperCase();
     socket.join(roomId);
 
@@ -1027,7 +1388,9 @@ io.on('connection', (socket) => {
       shieldHp: 0,
       shieldMaxHp: 0,
       phase: 1,
-      status: 'lobby'
+      status: 'lobby',
+      customWords,
+      wordPackTitle
     };
 
     raidRooms.set(roomId, raidRoom);
@@ -1053,9 +1416,11 @@ io.on('connection', (socket) => {
       bossName: raidRoom.bossName,
       difficulty: raidRoom.difficulty,
       hostId: raidRoom.hostId,
+      wordPackTitle: raidRoom.wordPackTitle,
       players: raidRoom.players.map(pId => raidPlayers.get(pId))
     });
   });
+
 
   socket.on('join_raid_lobby', ({ roomId, userId, username, rating }) => {
     const normalizedRoomId = roomId ? roomId.trim().toUpperCase() : '';
@@ -1162,9 +1527,12 @@ io.on('connection', (socket) => {
       maxHp: room.maxHp,
       currentHp: room.currentHp,
       partySize,
+      customWords: room.customWords,
+      wordPackTitle: room.wordPackTitle,
       players: room.players.map(pId => raidPlayers.get(pId))
     });
   });
+
 
   socket.on('raid_damage_dealt', ({ roomId, damage, isCrit, wpm, accuracy }) => {
     const room = raidRooms.get(roomId);

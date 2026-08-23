@@ -125,4 +125,41 @@ const RaidScoreSchema: Schema = new Schema({
 
 export const RaidScore = mongoose.model<IRaidScore>('RaidScore', RaidScoreSchema);
 
+export interface IWordPack extends Document {
+  title: string;
+  description: string;
+  category: string;
+  icon: string;
+  color: string;
+  difficulty: string;
+  words: string[];
+  tags: string[];
+  author: string;
+  authorId?: mongoose.Types.ObjectId;
+  isOfficial: boolean;
+  likesCount: number;
+  playsCount: number;
+  createdAt: Date;
+}
+
+const WordPackSchema: Schema = new Schema({
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  category: { type: String, default: 'general' },
+  icon: { type: String, default: '📦' },
+  color: { type: String, default: '#38bdf8' },
+  difficulty: { type: String, default: 'intermediate' },
+  words: [{ type: String, required: true }],
+  tags: [{ type: String }],
+  author: { type: String, default: 'Community Creator' },
+  authorId: { type: Schema.Types.ObjectId, ref: 'User' },
+  isOfficial: { type: Boolean, default: false },
+  likesCount: { type: Number, default: 0 },
+  playsCount: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now }
+});
+
+export const WordPack = mongoose.model<IWordPack>('WordPack', WordPackSchema);
+
+
 

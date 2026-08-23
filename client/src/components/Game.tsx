@@ -5,13 +5,15 @@ import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy } from '@fortawesome/free-solid-svg-icons';
+import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy, faBox, faPlus, faSearch, faThumbsUp, faEye, faTag, faDownload, faUpload, faFileCode, faTrash, faCheckCircle } from '@fortawesome/free-solid-svg-icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import { SoundEngine } from '@/lib/SoundEngine';
 import { THEMES, FONTS } from '@/lib/themes';
 import { BOSSES, BOSS_DIFFICULTIES, BossConfig, BossDifficulty } from '@/lib/bosses';
+import { WordPack, WordPackCategory, WordPackDifficulty, WORD_PACK_CATEGORIES, OFFICIAL_WORD_PACKS, sanitizeWords, validateWordPack } from '@/lib/wordPacks';
 import styles from './Game.module.css';
+
 
 const SERVER_URL = (process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001').replace(/\/$/, '');
 
@@ -185,9 +187,39 @@ export default function Game() {
   const [bossDefeatData, setBossDefeatData] = useState<{ bossName: string; remainingHp?: number; maxHp?: number } | null>(null);
   const [isBossFightActive, setIsBossFightActive] = useState(false);
   const [activeBossLeaderboardTab, setActiveBossLeaderboardTab] = useState<string>('all');
+
+  // Word Pack Studio & Workshop State
+  const [equippedWordPack, setEquippedWordPack] = useState<WordPack | null>(null);
+  const [showWorkshopModal, setShowWorkshopModal] = useState(false);
+  const [showStudioModal, setShowStudioModal] = useState(false);
+  const [previewPack, setPreviewPack] = useState<WordPack | null>(null);
+  const [workshopPacks, setWorkshopPacks] = useState<WordPack[]>(OFFICIAL_WORD_PACKS);
+  const [workshopCategory, setWorkshopCategory] = useState<string>('all');
+  const [workshopSearch, setWorkshopSearch] = useState<string>('');
+  const [workshopSort, setWorkshopSort] = useState<string>('popular');
+  const [isWorkshopLoading, setIsWorkshopLoading] = useState(false);
+  const [likedPackIds, setLikedPackIds] = useState<Set<string>>(new Set());
+
+  // Studio Form State
+  const [studioTitle, setStudioTitle] = useState('');
+  const [studioDesc, setStudioDesc] = useState('');
+  const [studioCategory, setStudioCategory] = useState<WordPackCategory>('coding');
+  const [studioIcon, setStudioIcon] = useState('💻');
+  const [studioDifficulty, setStudioDifficulty] = useState<WordPackDifficulty>('intermediate');
+  const [studioTags, setStudioTags] = useState('');
+  const [studioRawWords, setStudioRawWords] = useState('');
+  const [studioError, setStudioError] = useState('');
+  const [isPublishingPack, setIsPublishingPack] = useState(false);
+
+  // Studio Sandbox Simulator State
+  const [sandboxIndex, setSandboxIndex] = useState(0);
+  const [sandboxInput, setSandboxInput] = useState('');
+  const [sandboxScore, setSandboxScore] = useState(0);
+  const [sandboxCompleted, setSandboxCompleted] = useState(false);
   
   // Cosmetics & Customization
   const [customization, setCustomization] = useState({ theme: 'dark', fontFamily: 'Inter' });
+
   const [userTitle, setUserTitle] = useState<string>('Novice Typer');
   const [hudSettings, setHudSettings] = useState<{
     showWpm: boolean;
@@ -992,7 +1024,9 @@ export default function Game() {
       difficulty,
       userId,
       username: username || 'Raid Leader',
-      rating: userRating
+      rating: userRating,
+      customWords: equippedWordPack?.words,
+      wordPackTitle: equippedWordPack?.title
     });
   };
 
@@ -1024,14 +1058,165 @@ export default function Game() {
     socketRef.current = io(SERVER_URL);
   };
 
+  // --- Word Pack Workshop & Studio Actions --- //
 
+  const loadWorkshopPacks = async (cat = workshopCategory, q = workshopSearch, s = workshopSort) => {
+    setIsWorkshopLoading(true);
+    try {
+      const res = await fetch(`${SERVER_URL}/api/wordpacks?category=${cat}&search=${encodeURIComponent(q)}&sort=${s}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setWorkshopPacks(data);
+        } else {
+          setWorkshopPacks(OFFICIAL_WORD_PACKS);
+        }
+      } else {
+        setWorkshopPacks(OFFICIAL_WORD_PACKS);
+      }
+    } catch (e) {
+      setWorkshopPacks(OFFICIAL_WORD_PACKS);
+    } finally {
+      setIsWorkshopLoading(false);
+    }
+  };
+
+  const handleEquipPack = (pack: WordPack | null) => {
+    if (pack) {
+      if (equippedWordPack?.id === pack.id) {
+        // Toggle unequip
+        setEquippedWordPack(null);
+        localStorage.removeItem('typeclash_equipped_wordpack');
+        if (engineRef.current) engineRef.current.setWordPack(null);
+      } else {
+        setEquippedWordPack(pack);
+        localStorage.setItem('typeclash_equipped_wordpack', JSON.stringify(pack));
+        if (engineRef.current) engineRef.current.setWordPack(pack);
+      }
+    } else {
+      setEquippedWordPack(null);
+      localStorage.removeItem('typeclash_equipped_wordpack');
+      if (engineRef.current) engineRef.current.setWordPack(null);
+    }
+  };
+
+  const handleLikePack = async (packId: string) => {
+    if (likedPackIds.has(packId)) return;
+    setLikedPackIds(prev => new Set(prev).add(packId));
+    setWorkshopPacks(prev => prev.map(p => p.id === packId ? { ...p, likesCount: (p.likesCount || 0) + 1 } : p));
+    try {
+      await fetch(`${SERVER_URL}/api/wordpacks/${packId}/like`, { method: 'POST' });
+    } catch (e) {}
+  };
+
+  const handleSaveCustomPack = async (publishToCommunity: boolean) => {
+    setStudioError('');
+    const rawSanitized = sanitizeWords(studioRawWords);
+    const packPayload: Partial<WordPack> = {
+      title: studioTitle,
+      description: studioDesc,
+      category: studioCategory,
+      icon: studioIcon,
+      color: '#38bdf8',
+      difficulty: studioDifficulty,
+      tags: studioTags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean),
+      words: rawSanitized,
+      author: username || 'Community Typer',
+      authorId: userId || undefined
+    };
+
+    const validation = validateWordPack(packPayload);
+    if (!validation.valid) {
+      setStudioError(validation.error || 'Invalid word pack configuration.');
+      return;
+    }
+
+    setIsPublishingPack(true);
+    try {
+      const res = await fetch(`${SERVER_URL}/api/wordpacks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(packPayload)
+      });
+      const data = await res.json();
+      if (res.ok && data.pack) {
+        handleEquipPack(data.pack);
+        setShowStudioModal(false);
+        loadWorkshopPacks();
+      } else {
+        // Fallback local creation
+        const localPack: WordPack = {
+          id: `pack_local_${Date.now()}`,
+          title: studioTitle.trim(),
+          description: studioDesc.trim(),
+          category: studioCategory,
+          icon: studioIcon,
+          color: '#38bdf8',
+          difficulty: studioDifficulty,
+          tags: studioTags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean),
+          words: rawSanitized,
+          author: username || 'Community Typer',
+          isOfficial: false,
+          likesCount: 1,
+          playsCount: 0,
+          createdAt: new Date().toISOString()
+        };
+        handleEquipPack(localPack);
+        setShowStudioModal(false);
+      }
+    } catch (e) {
+      setStudioError('Network error saving pack.');
+    } finally {
+      setIsPublishingPack(false);
+    }
+  };
+
+  const handleExportPack = (pack: WordPack) => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(pack, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `${pack.title.replace(/[^a-zA-Z0-9_-]/g, '_')}_wordpack.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleImportPackJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.title) setStudioTitle(parsed.title);
+        if (parsed.description) setStudioDesc(parsed.description);
+        if (parsed.category) setStudioCategory(parsed.category);
+        if (parsed.icon) setStudioIcon(parsed.icon);
+        if (parsed.difficulty) setStudioDifficulty(parsed.difficulty);
+        if (parsed.tags && Array.isArray(parsed.tags)) setStudioTags(parsed.tags.join(', '));
+        if (parsed.words && Array.isArray(parsed.words)) setStudioRawWords(parsed.words.join('\n'));
+      } catch (err) {
+        setStudioError('Invalid JSON file format.');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const createRoom = () => {
     const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     setCurrentRoom(randomId);
     setWaitingForOpponent(true);
-    socketRef.current?.emit('join_room', { roomId: randomId, duration: matchDuration, userId, username, mods });
+    socketRef.current?.emit('join_room', { 
+      roomId: randomId, 
+      duration: matchDuration, 
+      userId, 
+      username, 
+      mods,
+      customWords: equippedWordPack?.words,
+      wordPackTitle: equippedWordPack?.title
+    });
   };
+
 
   const joinRoom = () => {
     if (roomCode.trim() !== '') {
@@ -1048,9 +1233,13 @@ export default function Game() {
     setIsPlaying(true);
     setPlayerMetrics(null);
     setMatchHistory([]);
-        setGameState(prev => ({...prev, isGameOver: false}));
-    engineRef.current?.start(Math.random().toString(), matchDuration * 1000, mods);
+    setGameState(prev => ({...prev, isGameOver: false}));
+    if (engineRef.current) {
+      engineRef.current.setWordPack(equippedWordPack);
+      engineRef.current.start(Math.random().toString(), matchDuration * 1000, mods);
+    }
   };
+
 
   const playDailyRun = async () => {
     try {
@@ -1428,7 +1617,11 @@ export default function Game() {
               <button onClick={loadProfile} className={styles.navBtn}>
                 <FontAwesomeIcon icon={faChartSimple} style={{ fontSize: 16 }} /> Profile
               </button>
+              <button onClick={() => { loadWorkshopPacks(); setShowWorkshopModal(true); }} className={styles.navBtn}>
+                <FontAwesomeIcon icon={faBox} style={{ fontSize: 16, color: '#38bdf8' }} /> Word Packs
+              </button>
               <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
+
                 <FontAwesomeIcon icon={faBookOpen} style={{ fontSize: 16 }} /> How to Play
               </button>
               <button onClick={() => setIsMuted(!isMuted)} className={styles.navBtn}>
@@ -1525,6 +1718,63 @@ export default function Game() {
                 <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)' }} onClick={playDailyRun}>Daily Run</button>
               </div>
 
+              {/* Equipped Word Pack Active Banner */}
+              {equippedWordPack && (
+                <div style={{
+                  width: '100%',
+                  marginBottom: '0.8rem',
+                  background: 'rgba(56, 189, 248, 0.12)',
+                  border: '1px solid #38bdf8',
+                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  boxShadow: '0 0 15px rgba(56, 189, 248, 0.2)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.5rem' }}>{equippedWordPack.icon}</span>
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontWeight: 'bold', color: '#38bdf8', fontSize: '0.95rem' }}>
+                        {equippedWordPack.title}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                        Active Custom Pack ({equippedWordPack.words?.length || 0} words)
+                      </div>
+                    </div>
+                  </div>
+                  <button 
+                    className={styles.btnSmall}
+                    style={{ padding: '4px 10px', fontSize: '0.75rem', background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#fca5a5' }}
+                    onClick={() => handleEquipPack(null)}
+                  >
+                    Reset
+                  </button>
+                </div>
+              )}
+
+              <button 
+                className={styles.btn} 
+                style={{ 
+                  width: '100%', 
+                  marginTop: 0, 
+                  marginBottom: '0.8rem',
+                  fontSize: '1.2rem', 
+                  padding: '12px', 
+                  background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                  border: '1px solid #38bdf8',
+                  boxShadow: '0 0 16px rgba(56, 189, 248, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px'
+                }} 
+                onClick={() => { loadWorkshopPacks(); setShowWorkshopModal(true); }}
+              >
+                <FontAwesomeIcon icon={faBox} style={{ color: '#bae6fd' }} />
+                <span>Word Pack Studio & Workshop</span>
+              </button>
+
               <button 
                 className={styles.btn} 
                 style={{ 
@@ -1548,6 +1798,7 @@ export default function Game() {
               </button>
 
               <button className={styles.btn} style={{ width: '100%', marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #1e40af, #1e3a8a)' }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Leaderboard</button>
+
             </div>
           </div>
         </div>
@@ -2140,9 +2391,460 @@ export default function Game() {
         </div>
       )}
 
+      {/* Word Pack Community Workshop Modal */}
+      {showWorkshopModal && !isPlaying && (
+        <div className={styles.overlay}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '92%', maxWidth: '960px', maxHeight: '88vh', overflowY: 'auto', padding: '1.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
+              <div>
+                <h2 className={styles.title} style={{ fontSize: '2.4rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <FontAwesomeIcon icon={faBox} style={{ color: '#38bdf8' }} /> Word Pack Workshop
+                </h2>
+                <p className={styles.scoreText} style={{ margin: '4px 0 0 0', fontSize: '0.9rem', textAlign: 'left' }}>
+                  Explore, play, and build custom themed vocabularies across coding, science, literature, gaming, and anime.
+                </p>
+              </div>
+              <button 
+                className={styles.btnSmall}
+                style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', fontWeight: 'bold', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}
+                onClick={() => {
+                  setStudioTitle('');
+                  setStudioDesc('');
+                  setStudioCategory('coding');
+                  setStudioIcon('💻');
+                  setStudioDifficulty('intermediate');
+                  setStudioTags('');
+                  setStudioRawWords('');
+                  setStudioError('');
+                  setShowStudioModal(true);
+                }}
+              >
+                <FontAwesomeIcon icon={faPlus} />
+                <span>Create New Pack</span>
+              </button>
+            </div>
+
+            {/* Search, Filter & Sort Controls */}
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.2rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+                <input 
+                  type="text" 
+                  className={styles.input} 
+                  placeholder="Search packs by title, topic, or tag..." 
+                  style={{ width: '100%', paddingLeft: '36px' }}
+                  value={workshopSearch}
+                  onChange={(e) => {
+                    setWorkshopSearch(e.target.value);
+                    loadWorkshopPacks(workshopCategory, e.target.value, workshopSort);
+                  }}
+                />
+                <FontAwesomeIcon icon={faSearch} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              </div>
+
+              <select 
+                className={styles.input} 
+                style={{ width: '180px', background: 'rgba(0,0,0,0.8)' }}
+                value={workshopSort}
+                onChange={(e) => {
+                  setWorkshopSort(e.target.value);
+                  loadWorkshopPacks(workshopCategory, workshopSearch, e.target.value);
+                }}
+              >
+                <option value="popular">🔥 Most Popular</option>
+                <option value="likes">❤️ Highest Rated</option>
+                <option value="newest">✨ Newest First</option>
+              </select>
+            </div>
+
+            {/* Category Pills */}
+            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '1.5rem', width: '100%' }} className={styles.noScrollbar}>
+              <div 
+                className={`${styles.packCategoryPill} ${workshopCategory === 'all' ? styles.packCategoryPillActive : ''}`}
+                onClick={() => { setWorkshopCategory('all'); loadWorkshopPacks('all', workshopSearch, workshopSort); }}
+              >
+                🌐 All Categories
+              </div>
+              {WORD_PACK_CATEGORIES.map(cat => (
+                <div 
+                  key={cat.id} 
+                  className={`${styles.packCategoryPill} ${workshopCategory === cat.id ? styles.packCategoryPillActive : ''}`}
+                  onClick={() => { setWorkshopCategory(cat.id); loadWorkshopPacks(cat.id, workshopSearch, workshopSort); }}
+                >
+                  <span>{cat.icon}</span> {cat.name}
+                </div>
+              ))}
+            </div>
+
+            {/* Word Pack Cards Grid */}
+            {isWorkshopLoading ? (
+              <div style={{ textAlign: 'center', padding: '3rem 0' }}>
+                <div className={styles.loader}></div>
+                <p style={{ color: '#94a3b8', marginTop: '1rem' }}>Loading word packs...</p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.2rem', width: '100%', marginBottom: '1.5rem' }}>
+                {workshopPacks.map((pack) => {
+                  const isEquipped = equippedWordPack?.id === pack.id || equippedWordPack?.title === pack.title;
+                  const isLiked = likedPackIds.has(pack.id);
+                  return (
+                    <div 
+                      key={pack.id} 
+                      className={`${styles.wordPackCard} ${isEquipped ? styles.wordPackCardEquipped : ''}`}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '1.8rem' }}>{pack.icon}</span>
+                            <div>
+                              <h4 style={{ margin: 0, fontSize: '1.1rem', color: '#f8fafc', fontWeight: 'bold' }}>{pack.title}</h4>
+                              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>By {pack.author}</span>
+                            </div>
+                          </div>
+                          {pack.isOfficial && (
+                            <span style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold', border: '1px solid rgba(56, 189, 248, 0.4)' }}>
+                              OFFICIAL
+                            </span>
+                          )}
+                        </div>
+
+                        <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: '1.4', margin: '6px 0 10px 0' }}>
+                          {pack.description}
+                        </p>
+
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '10px' }}>
+                          {pack.tags?.slice(0, 4).map((t, idx) => (
+                            <span key={idx} style={{ background: 'rgba(255,255,255,0.06)', color: '#94a3b8', fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px' }}>
+                              #{t}
+                            </span>
+                          ))}
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#94a3b8', background: 'rgba(0,0,0,0.3)', padding: '6px 10px', borderRadius: '6px', marginBottom: '12px' }}>
+                          <span>📦 {pack.words?.length || 0} Words</span>
+                          <span style={{ textTransform: 'capitalize', color: pack.difficulty === 'expert' ? '#f87171' : pack.difficulty === 'intermediate' ? '#fbbf24' : '#4ade80' }}>
+                            ● {pack.difficulty}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button 
+                          className={styles.btnSmall}
+                          style={{
+                            flex: 1,
+                            padding: '8px',
+                            fontWeight: 'bold',
+                            fontSize: '0.85rem',
+                            background: isEquipped ? 'rgba(56, 189, 248, 0.2)' : 'linear-gradient(135deg, #0284c7, #0369a1)',
+                            border: isEquipped ? '1px solid #38bdf8' : 'none',
+                            color: isEquipped ? '#38bdf8' : '#fff'
+                          }}
+                          onClick={() => handleEquipPack(pack)}
+                        >
+                          {isEquipped ? '✓ Equipped' : '⚡ Equip Pack'}
+                        </button>
+
+                        <button 
+                          className={styles.btnSmall}
+                          style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.08)', color: '#e2e8f0' }}
+                          title="Preview Words"
+                          onClick={() => setPreviewPack(pack)}
+                        >
+                          <FontAwesomeIcon icon={faEye} />
+                        </button>
+
+                        <button 
+                          className={styles.btnSmall}
+                          style={{ padding: '8px 10px', background: isLiked ? 'rgba(244, 63, 94, 0.2)' : 'rgba(255,255,255,0.08)', color: isLiked ? '#f43f5e' : '#cbd5e1' }}
+                          title="Like Pack"
+                          onClick={() => handleLikePack(pack.id)}
+                        >
+                          <FontAwesomeIcon icon={faThumbsUp} /> {pack.likesCount || 0}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button 
+              className={styles.btn} 
+              style={{ width: '100%', background: 'rgba(255,255,255,0.1)' }} 
+              onClick={() => setShowWorkshopModal(false)}
+            >
+              Close Workshop
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Word Pack Preview Modal */}
+      {previewPack && (
+        <div className={styles.overlay} style={{ zIndex: 120 }}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '2rem' }}>{previewPack.icon}</span>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.4rem', color: '#f8fafc' }}>{previewPack.title}</h3>
+                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Created by {previewPack.author} • {previewPack.words?.length || 0} Total Words</span>
+              </div>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: '#cbd5e1', marginBottom: '1.2rem' }}>{previewPack.description}</p>
+
+            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '10px', maxHeight: '300px', overflowY: 'auto', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {previewPack.words?.map((w, idx) => (
+                  <span key={idx} className={styles.wordChip}>
+                    {w}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+              <button 
+                className={styles.btn} 
+                style={{ flex: 1, background: 'linear-gradient(135deg, #0284c7, #0369a1)' }}
+                onClick={() => {
+                  handleEquipPack(previewPack);
+                  setPreviewPack(null);
+                }}
+              >
+                {equippedWordPack?.id === previewPack.id ? '✓ Already Equipped' : '⚡ Equip & Play'}
+              </button>
+              <button 
+                className={styles.btnSmall}
+                style={{ padding: '0 16px', background: 'rgba(255,255,255,0.1)' }}
+                onClick={() => handleExportPack(previewPack)}
+                title="Export as JSON"
+              >
+                <FontAwesomeIcon icon={faDownload} /> JSON
+              </button>
+              <button 
+                className={styles.btnSmall}
+                style={{ padding: '0 16px', background: 'rgba(255,255,255,0.08)' }}
+                onClick={() => setPreviewPack(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Word Pack Studio Creator Modal */}
+      {showStudioModal && !isPlaying && (
+        <div className={styles.overlay} style={{ zIndex: 110 }}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '92%', maxWidth: '850px', maxHeight: '88vh', overflowY: 'auto', padding: '1.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
+              <div>
+                <h2 className={styles.title} style={{ fontSize: '2.2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <FontAwesomeIcon icon={faPlus} style={{ color: '#10b981' }} /> Word Pack Studio
+                </h2>
+                <p className={styles.scoreText} style={{ margin: '4px 0 0 0', fontSize: '0.85rem', textAlign: 'left' }}>
+                  Design custom vocabulary dictionaries, validate character sets, and test run your words.
+                </p>
+              </div>
+
+              <label className={styles.btnSmall} style={{ background: 'rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <FontAwesomeIcon icon={faUpload} /> Import JSON
+                <input type="file" accept=".json" onChange={handleImportPackJson} style={{ display: 'none' }} />
+              </label>
+            </div>
+
+            {studioError && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#fca5a5', padding: '10px', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                ⚠️ {studioError}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.2rem', marginBottom: '1.2rem' }}>
+              {/* Metadata Inputs */}
+              <div className={styles.studioSection}>
+                <h4 style={{ margin: '0 0 4px 0', color: '#38bdf8', fontSize: '0.95rem' }}>1. Pack Dossier</h4>
+                
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>Pack Title</label>
+                  <input 
+                    type="text" 
+                    className={styles.studioInput} 
+                    placeholder="e.g. JavaScript & React Mastery" 
+                    value={studioTitle}
+                    onChange={(e) => setStudioTitle(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>Description</label>
+                  <input 
+                    type="text" 
+                    className={styles.studioInput} 
+                    placeholder="Brief description of the pack topic..." 
+                    value={studioDesc}
+                    onChange={(e) => setStudioDesc(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>Category</label>
+                    <select 
+                      className={styles.studioInput}
+                      value={studioCategory}
+                      onChange={(e) => setStudioCategory(e.target.value as WordPackCategory)}
+                    >
+                      {WORD_PACK_CATEGORIES.map(c => (
+                        <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>Difficulty</label>
+                    <select 
+                      className={styles.studioInput}
+                      value={studioDifficulty}
+                      onChange={(e) => setStudioDifficulty(e.target.value as WordPackDifficulty)}
+                    >
+                      <option value="beginner">Beginner</option>
+                      <option value="intermediate">Intermediate</option>
+                      <option value="expert">Expert</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>Icon</label>
+                    <select 
+                      className={styles.studioInput}
+                      value={studioIcon}
+                      onChange={(e) => setStudioIcon(e.target.value)}
+                      style={{ fontSize: '1.2rem' }}
+                    >
+                      <option value="💻">💻</option>
+                      <option value="🐍">🐍</option>
+                      <option value="🧬">🧬</option>
+                      <option value="📚">📚</option>
+                      <option value="🌌">🌌</option>
+                      <option value="🌸">🌸</option>
+                      <option value="⚔️">⚔️</option>
+                      <option value="🎯">🎯</option>
+                      <option value="🔥">🔥</option>
+                      <option value="⚡">⚡</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>Tags (comma-separated)</label>
+                    <input 
+                      type="text" 
+                      className={styles.studioInput} 
+                      placeholder="code, react, javascript" 
+                      value={studioTags}
+                      onChange={(e) => setStudioTags(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Bulk Word Importer & Sanitizer */}
+              <div className={styles.studioSection}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h4 style={{ margin: 0, color: '#38bdf8', fontSize: '0.95rem' }}>2. Vocabulary Corpus</h4>
+                  {(() => {
+                    const clean = sanitizeWords(studioRawWords);
+                    const isValid = clean.length >= 10;
+                    return (
+                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: isValid ? '#4ade80' : '#f87171' }}>
+                        {clean.length} / 10 words {isValid ? '✓ (Valid)' : '(Need 10+)'}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                <textarea 
+                  className={styles.studioTextarea}
+                  placeholder="Paste or type words here. Separate by commas, newlines, or spaces...&#10;&#10;async, await, promise, closure, middleware, component, typescript..."
+                  value={studioRawWords}
+                  onChange={(e) => setStudioRawWords(e.target.value)}
+                />
+
+                <div style={{ fontSize: '0.72rem', color: '#94a3b8', lineHeight: '1.3' }}>
+                  * Duplicate words and illegal symbols are sanitized automatically.
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Live Typing Sandbox Simulator */}
+            {(() => {
+              const cleanWords = sanitizeWords(studioRawWords);
+              if (cleanWords.length >= 3) {
+                const currentSandboxWord = cleanWords[sandboxIndex % cleanWords.length];
+                return (
+                  <div className={styles.sandboxBox} style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#38bdf8' }}>
+                        🧪 Interactive Pack Sandbox Simulator
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                        Progress: {sandboxIndex + 1} / {cleanWords.length} Words | Score: {sandboxScore}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#fcd34d', margin: '8px 0', letterSpacing: '2px', fontFamily: 'monospace' }}>
+                      {currentSandboxWord}
+                    </div>
+
+                    <input 
+                      type="text" 
+                      className={styles.studioInput}
+                      style={{ maxWidth: '300px', textAlign: 'center', fontSize: '1.1rem', borderColor: '#38bdf8' }}
+                      placeholder="Type the word above to test..."
+                      value={sandboxInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSandboxInput(val);
+                        if (val.trim().toLowerCase() === currentSandboxWord.toLowerCase()) {
+                          setSandboxScore(prev => prev + 100);
+                          setSandboxInput('');
+                          setSandboxIndex(prev => (prev + 1) % cleanWords.length);
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {/* Studio Action Buttons */}
+            <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+              <button 
+                className={styles.btn} 
+                style={{ flex: 1, background: 'linear-gradient(135deg, #10b981, #059669)', fontSize: '1rem', padding: '12px' }}
+                disabled={isPublishingPack}
+                onClick={() => handleSaveCustomPack(true)}
+              >
+                {isPublishingPack ? 'Publishing...' : '🚀 Save & Equip Custom Pack'}
+              </button>
+              <button 
+                className={styles.btnSmall}
+                style={{ padding: '0 20px', background: 'rgba(255,255,255,0.08)' }}
+                onClick={() => setShowStudioModal(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Boss Selection Modal */}
       {showBossModal && !isPlaying && (
         <div className={styles.overlay}>
+
           <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '90%', maxWidth: '850px', maxHeight: '88vh', overflowY: 'auto' }}>
             <h2 className={styles.title} style={{ fontSize: '2.6rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
               <FontAwesomeIcon icon={faSkull} style={{ color: '#ef4444' }} /> Boss Rush & Raids
