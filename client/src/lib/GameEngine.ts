@@ -5,6 +5,8 @@ import { AdaptiveDifficulty } from './AdaptiveDifficulty';
 import { SoundEngine } from './SoundEngine';
 import { BossConfig, BOSSES, BossDifficulty, BOSS_DIFFICULTIES, calculateBossDamage } from './bosses';
 import { WordPack } from './wordPacks';
+import { KeyStat } from './keyboardAnalytics';
+
 
 
 export interface GameState {
@@ -134,6 +136,25 @@ export class GameEngine {
   // Custom Word Pack
   public activeWordPack: WordPack | null = null;
 
+  // Keyboard Telemetry
+  private keyStats: Map<string, { count: number; errors: number; totalLatencyMs: number }> = new Map();
+  private lastKeyTime: number = 0;
+
+  public getKeyTelemetry(): Record<string, KeyStat> {
+    const res: Record<string, KeyStat> = {};
+    for (const [k, s] of this.keyStats.entries()) {
+      res[k] = {
+        key: k,
+        count: s.count,
+        errors: s.errors,
+        totalLatencyMs: s.totalLatencyMs,
+        avgLatencyMs: s.count > 0 ? Math.round(s.totalLatencyMs / s.count) : 0,
+        accuracy: s.count > 0 ? Math.max(0, Math.round(((s.count - s.errors) / s.count) * 100)) : 100
+      };
+    }
+    return res;
+  }
+
   // Customization
   private theme: ThemeConfig;
   private fontFamily: string;
@@ -141,6 +162,7 @@ export class GameEngine {
   public setWordPack(pack: WordPack | null) {
     this.activeWordPack = pack;
   }
+
 
 
   constructor(canvas: HTMLCanvasElement, theme: ThemeConfig | undefined, fontFamily: string | undefined, soundEngine: SoundEngine) {
@@ -163,9 +185,12 @@ export class GameEngine {
   }
 
   public start(seed?: string, durationMs: number = 60000, modifiers?: GameModifiers) {
+    this.keyStats.clear();
+    this.lastKeyTime = 0;
     this.bossEntity = null;
     this.isCoopRaid = false;
     this.random = seedrandom(seed || Math.random().toString());
+
     this.modifiers = modifiers;
     this.matchDuration = durationMs;
     this.state = { 
@@ -197,8 +222,11 @@ export class GameEngine {
     partySize: number = 1, 
     seed?: string
   ) {
+    this.keyStats.clear();
+    this.lastKeyTime = 0;
     const boss = BOSSES[bossId] || BOSSES.ignis;
     this.bossEntity = boss;
+
     this.bossDifficulty = difficulty;
     this.isCoopRaid = isCoop;
     this.partySize = Math.max(1, partySize);
@@ -734,6 +762,20 @@ export class GameEngine {
     
     this.state.totalKeystrokes += 1;
 
+    // Track Keystroke Telemetry
+    const cleanKey = key.toLowerCase();
+    const now = performance.now();
+    const latency = this.lastKeyTime > 0 ? Math.min(1000, Math.max(20, Math.round(now - this.lastKeyTime))) : 150;
+    this.lastKeyTime = now;
+
+    let kStat = this.keyStats.get(cleanKey);
+    if (!kStat) {
+      kStat = { count: 0, errors: 0, totalLatencyMs: 0 };
+      this.keyStats.set(cleanKey, kStat);
+    }
+    kStat.count += 1;
+    kStat.totalLatencyMs += latency;
+
     if (this.targetedWordId) {
       // We are already targeting a word
       const target = this.words.find(w => w.id === this.targetedWordId);
@@ -755,7 +797,8 @@ export class GameEngine {
           this.destroyWord(target.id);
         }
       } else {
-        // Wrong hit - break combo
+        // Wrong hit - record error and break combo
+        kStat.errors += 1;
         target.hasTypo = true;
         target.isGolden = false;
         this.sound.playKeystroke(false, 0);
@@ -779,11 +822,13 @@ export class GameEngine {
         }
       } else {
         // Typed a key that doesn't match any word
+        kStat.errors += 1;
         this.sound.playKeystroke(false, 0);
         this.breakCombo();
       }
     }
   }
+
 
   private async spawnWord(speed: number, progressScore: number) {
     const rect = this.canvas.getBoundingClientRect();

@@ -5,14 +5,17 @@ import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy, faBox, faPlus, faSearch, faThumbsUp, faEye, faTag, faDownload, faUpload, faFileCode, faTrash, faCheckCircle } from '@fortawesome/free-solid-svg-icons';
+import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy, faBox, faPlus, faSearch, faThumbsUp, faEye, faTag, faDownload, faUpload, faFileCode, faTrash, faCheckCircle, faKeyboard, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import { SoundEngine } from '@/lib/SoundEngine';
 import { THEMES, FONTS } from '@/lib/themes';
 import { BOSSES, BOSS_DIFFICULTIES, BossConfig, BossDifficulty } from '@/lib/bosses';
 import { WordPack, WordPackCategory, WordPackDifficulty, WORD_PACK_CATEGORIES, OFFICIAL_WORD_PACKS, sanitizeWords, validateWordPack } from '@/lib/wordPacks';
+import { KEYBOARD_LAYOUTS, KeyboardLayoutId, HeatmapMetric, KeyTelemetryMap, KeyStat, FingerId, FINGERS, calculateHandBalance, identifyBottlenecks, generateWeaknessDrillWords, getKeyHeatColor } from '@/lib/keyboardAnalytics';
+
 import styles from './Game.module.css';
+
 
 
 const SERVER_URL = (process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -216,9 +219,17 @@ export default function Game() {
   const [sandboxInput, setSandboxInput] = useState('');
   const [sandboxScore, setSandboxScore] = useState(0);
   const [sandboxCompleted, setSandboxCompleted] = useState(false);
+
+  // Keyboard Heatmap & Ergonomics State
+  const [lifetimeKeyTelemetry, setLifetimeKeyTelemetry] = useState<KeyTelemetryMap>({});
+  const [showHeatmapModal, setShowHeatmapModal] = useState(false);
+  const [heatmapLayout, setHeatmapLayout] = useState<KeyboardLayoutId>('qwerty');
+  const [heatmapMetric, setHeatmapMetric] = useState<HeatmapMetric>('frequency');
+  const [selectedKeyDetail, setSelectedKeyDetail] = useState<KeyStat | null>(null);
   
   // Cosmetics & Customization
   const [customization, setCustomization] = useState({ theme: 'dark', fontFamily: 'Inter' });
+
 
   const [userTitle, setUserTitle] = useState<string>('Novice Typer');
   const [hudSettings, setHudSettings] = useState<{
@@ -281,6 +292,14 @@ export default function Game() {
         setHudSettings(JSON.parse(savedHud));
       } catch(e) {}
     }
+
+    const savedTelemetry = localStorage.getItem('typeclash_keyboard_telemetry');
+    if (savedTelemetry) {
+      try {
+        setLifetimeKeyTelemetry(JSON.parse(savedTelemetry));
+      } catch (e) {}
+    }
+
     
     if (savedId && savedName && savedToken) {
       try {
@@ -684,6 +703,34 @@ export default function Game() {
   useEffect(() => {
     if (engineRef.current) {
       engineRef.current.onGameOverCallback = async (score, maxCombo, survived, metrics) => {
+        // Collect match key telemetry into lifetime state
+        const matchTelemetry = engineRef.current?.getKeyTelemetry();
+        if (matchTelemetry && Object.keys(matchTelemetry).length > 0) {
+          setLifetimeKeyTelemetry(prev => {
+            const updated: KeyTelemetryMap = { ...prev };
+            for (const [k, stat] of Object.entries(matchTelemetry)) {
+              if (!updated[k]) {
+                updated[k] = { ...stat };
+              } else {
+                const cur = updated[k];
+                const newCount = cur.count + stat.count;
+                const newErrors = cur.errors + stat.errors;
+                const newTotalTime = cur.totalLatencyMs + stat.totalLatencyMs;
+                updated[k] = {
+                  key: k,
+                  count: newCount,
+                  errors: newErrors,
+                  totalLatencyMs: newTotalTime,
+                  avgLatencyMs: newCount > 0 ? Math.round(newTotalTime / newCount) : 0,
+                  accuracy: newCount > 0 ? Math.max(0, Math.round(((newCount - newErrors) / newCount) * 100)) : 100
+                };
+              }
+            }
+            localStorage.setItem('typeclash_keyboard_telemetry', JSON.stringify(updated));
+            return updated;
+          });
+        }
+
         if (isSinglePlayer) {
           setPlayerMetrics(metrics);
           if (userId) {
@@ -709,7 +756,8 @@ export default function Game() {
         }
       };
     }
-  }, [isSinglePlayer, userId, matchDuration]);
+  }, [isSinglePlayer, userId, matchDuration, isDaily, dailySeed, mods]);
+
 
   // Auto Matchmaking Timeout Fallback
   useEffect(() => {
@@ -1202,7 +1250,41 @@ export default function Game() {
     reader.readAsText(file);
   };
 
+  // --- Keyboard Heatmap & Ergonomics Actions --- //
+
+  const startWeaknessDrill = (keys: string[]) => {
+    const drillWords = generateWeaknessDrillWords(keys, 30);
+    const drillPack: WordPack = {
+      id: `drill_${Date.now()}`,
+      title: `🎯 Weakness Drill (${keys.map(k => k.toUpperCase()).join(', ')})`,
+      description: `Targeted precision drill for problem keys: ${keys.map(k => k.toUpperCase()).join(', ')}`,
+      category: 'literature',
+      icon: '🎯',
+      color: '#ef4444',
+      difficulty: 'intermediate',
+      tags: ['drill', 'weakness', 'ergonomics'],
+      words: drillWords,
+      author: 'Ergonomics AI',
+      isOfficial: false,
+      likesCount: 0,
+      playsCount: 0,
+      createdAt: new Date().toISOString()
+    };
+
+    handleEquipPack(drillPack);
+    setShowHeatmapModal(false);
+    playSinglePlayer();
+  };
+
+  const resetKeyboardTelemetry = () => {
+    if (confirm('Are you sure you want to reset all keyboard ergonomics and accuracy telemetry?')) {
+      setLifetimeKeyTelemetry({});
+      localStorage.removeItem('typeclash_keyboard_telemetry');
+    }
+  };
+
   const createRoom = () => {
+
     const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     setCurrentRoom(randomId);
     setWaitingForOpponent(true);
@@ -1620,7 +1702,11 @@ export default function Game() {
               <button onClick={() => { loadWorkshopPacks(); setShowWorkshopModal(true); }} className={styles.navBtn}>
                 <FontAwesomeIcon icon={faBox} style={{ fontSize: 16, color: '#38bdf8' }} /> Word Packs
               </button>
+              <button onClick={() => setShowHeatmapModal(true)} className={styles.navBtn}>
+                <FontAwesomeIcon icon={faKeyboard} style={{ fontSize: 16, color: '#f59e0b' }} /> Heatmap
+              </button>
               <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
+
 
                 <FontAwesomeIcon icon={faBookOpen} style={{ fontSize: 16 }} /> How to Play
               </button>
@@ -1774,6 +1860,29 @@ export default function Game() {
                 <FontAwesomeIcon icon={faBox} style={{ color: '#bae6fd' }} />
                 <span>Word Pack Studio & Workshop</span>
               </button>
+
+              <button 
+                className={styles.btn} 
+                style={{ 
+                  width: '100%', 
+                  marginTop: 0, 
+                  marginBottom: '0.8rem',
+                  fontSize: '1.2rem', 
+                  padding: '12px', 
+                  background: 'linear-gradient(135deg, #d97706, #b45309)',
+                  border: '1px solid #f59e0b',
+                  boxShadow: '0 0 16px rgba(245, 158, 11, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px'
+                }} 
+                onClick={() => setShowHeatmapModal(true)}
+              >
+                <FontAwesomeIcon icon={faKeyboard} style={{ color: '#fde68a' }} />
+                <span>Keyboard Heatmap & Ergonomics</span>
+              </button>
+
 
               <button 
                 className={styles.btn} 
@@ -2331,7 +2440,17 @@ export default function Game() {
               </div>
             </div>
 
-            <button className={styles.btn} onClick={() => setShowProfile(false)}>Close Profile</button>
+            <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+              <button 
+                className={styles.btn} 
+                style={{ flex: 1, background: 'linear-gradient(135deg, #d97706, #b45309)', border: '1px solid #f59e0b' }} 
+                onClick={() => { setShowProfile(false); setShowHeatmapModal(true); }}
+              >
+                <FontAwesomeIcon icon={faKeyboard} style={{ marginRight: '8px' }} /> View Keyboard Heatmap & Ergonomics
+              </button>
+              <button className={styles.btnSmall} style={{ padding: '0 20px', background: 'rgba(255,255,255,0.1)' }} onClick={() => setShowProfile(false)}>Close</button>
+            </div>
+
 
           </div>
         </div>
@@ -2365,6 +2484,260 @@ export default function Game() {
           </div>
         </div>
       )}
+
+      {/* Keyboard Heatmap & Finger Ergonomics Modal */}
+      {showHeatmapModal && !isPlaying && (
+        <div className={styles.overlay} style={{ zIndex: 115 }}>
+          <div className={`${styles.multiplayerBox} ${styles.noScrollbar}`} style={{ width: '94%', maxWidth: '1020px', maxHeight: '90vh', overflowY: 'auto', padding: '1.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
+              <div>
+                <h2 className={styles.title} style={{ fontSize: '2.4rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <FontAwesomeIcon icon={faKeyboard} style={{ color: '#f59e0b' }} /> Keyboard Heatmap & Ergonomics
+                </h2>
+                <p className={styles.scoreText} style={{ margin: '4px 0 0 0', fontSize: '0.9rem', textAlign: 'left' }}>
+                  Real-time per-key telemetry, mechanical heatmaps, hand load distribution, and targeted weakness drills.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  className={styles.btnSmall}
+                  style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#fca5a5', fontSize: '0.8rem' }}
+                  onClick={resetKeyboardTelemetry}
+                  title="Reset all recorded keystroke telemetry"
+                >
+                  <FontAwesomeIcon icon={faRotateRight} /> Reset Data
+                </button>
+              </div>
+            </div>
+
+            {/* Controls Bar: Metric Selector + Layout Switcher */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.2rem' }}>
+              {/* Metric Selector Tabs */}
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button 
+                  className={`${styles.btnSmall} ${heatmapMetric === 'frequency' ? styles.btnSmallActive : ''}`}
+                  onClick={() => setHeatmapMetric('frequency')}
+                >
+                  🔥 Keystroke Heat
+                </button>
+                <button 
+                  className={`${styles.btnSmall} ${heatmapMetric === 'accuracy' ? styles.btnSmallActive : ''}`}
+                  onClick={() => setHeatmapMetric('accuracy')}
+                >
+                  🎯 Accuracy Hotspots
+                </button>
+                <button 
+                  className={`${styles.btnSmall} ${heatmapMetric === 'latency' ? styles.btnSmallActive : ''}`}
+                  onClick={() => setHeatmapMetric('latency')}
+                >
+                  ⚡ Key Dwell Latency
+                </button>
+              </div>
+
+              {/* Layout Switcher */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Layout:</span>
+                <select 
+                  className={styles.input} 
+                  style={{ width: '160px', padding: '6px 10px', fontSize: '0.85rem', background: 'rgba(0,0,0,0.8)' }}
+                  value={heatmapLayout}
+                  onChange={(e) => setHeatmapLayout(e.target.value as KeyboardLayoutId)}
+                >
+                  <option value="qwerty">QWERTY</option>
+                  <option value="dvorak">Dvorak</option>
+                  <option value="colemak">Colemak</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Mechanical Keyboard Heatmap Visualizer */}
+            {(() => {
+              const currentLayout = KEYBOARD_LAYOUTS[heatmapLayout] || KEYBOARD_LAYOUTS.qwerty;
+              const maxKeystrokes = Math.max(1, ...Object.values(lifetimeKeyTelemetry).map(s => s.count || 0));
+
+              return (
+                <div className={styles.keyboardCase} style={{ marginBottom: '1.5rem' }}>
+                  {currentLayout.rows.map((row, rowIdx) => (
+                    <div key={rowIdx} className={styles.keyboardRow}>
+                      {row.keys.map((keyDef, keyIdx) => {
+                        const stat = lifetimeKeyTelemetry[keyDef.code.toLowerCase()];
+                        const heatColors = getKeyHeatColor(stat, heatmapMetric, maxKeystrokes);
+                        const fingerColor = FINGERS[keyDef.finger]?.color || '#38bdf8';
+                        const keyWidthPx = keyDef.width ? Math.round(keyDef.width * 48) : 46;
+
+                        return (
+                          <div
+                            key={keyIdx}
+                            className={styles.keycap}
+                            onClick={() => setSelectedKeyDetail(stat ? { ...stat, key: keyDef.code } : { key: keyDef.code, count: 0, errors: 0, totalLatencyMs: 0, avgLatencyMs: 0, accuracy: 100 })}
+                            style={{
+                              width: `${keyWidthPx}px`,
+                              background: heatColors.bg,
+                              border: `1px solid ${heatColors.border}`,
+                              boxShadow: heatColors.glow !== 'none' ? `${heatColors.glow}, inset 0 1px 0 rgba(255,255,255,0.2)` : '0 4px 6px rgba(0, 0, 0, 0.3)',
+                              color: heatColors.text
+                            }}
+                            title={`${keyDef.label} (Finger: ${FINGERS[keyDef.finger]?.name}) • ${stat ? `${stat.count} hits | ${stat.accuracy}% acc | ${stat.avgLatencyMs}ms` : 'No data yet'}`}
+                          >
+                            <span style={{ fontSize: keyDef.label.length > 2 ? '0.72rem' : '0.95rem' }}>
+                              {keyDef.label}
+                            </span>
+                            
+                            {/* Metric Value Label on Keycap */}
+                            {stat && stat.count > 0 && (
+                              <span className={styles.keycapSubLabel}>
+                                {heatmapMetric === 'frequency' && `${stat.count}`}
+                                {heatmapMetric === 'accuracy' && `${stat.accuracy}%`}
+                                {heatmapMetric === 'latency' && `${stat.avgLatencyMs}ms`}
+                              </span>
+                            )}
+
+                            {/* Finger Indicator Dot */}
+                            <span className={styles.keycapFingerDot} style={{ backgroundColor: fingerColor }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Selected Key Detail Inspection Card */}
+            {selectedKeyDetail && (
+              <div style={{ background: 'rgba(56, 189, 248, 0.12)', border: '1px solid #38bdf8', borderRadius: '10px', padding: '12px 16px', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 'bold', background: '#0284c7', color: '#fff', width: '48px', height: '48px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {selectedKeyDetail.key.toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 'bold', color: '#38bdf8', fontSize: '1rem' }}>
+                      Key Telemetry Dossier: "{selectedKeyDetail.key.toUpperCase()}"
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                      {selectedKeyDetail.count} Total Keystrokes • {selectedKeyDetail.errors} Miskeys ({Math.round(selectedKeyDetail.count > 0 ? (selectedKeyDetail.errors / selectedKeyDetail.count) * 100 : 0)}% Error Rate)
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '1.5rem', textAlign: 'right' }}>
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Accuracy</div>
+                    <div style={{ fontWeight: 'bold', color: selectedKeyDetail.accuracy >= 95 ? '#4ade80' : '#f87171', fontSize: '1.1rem' }}>
+                      {selectedKeyDetail.accuracy}%
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Avg Latency</div>
+                    <div style={{ fontWeight: 'bold', color: '#fbbf24', fontSize: '1.1rem' }}>
+                      {selectedKeyDetail.avgLatencyMs} ms
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Hand Ergonomics & Finger Load Breakdown */}
+            {(() => {
+              const balance = calculateHandBalance(lifetimeKeyTelemetry, KEYBOARD_LAYOUTS[heatmapLayout]);
+              const bottlenecks = identifyBottlenecks(lifetimeKeyTelemetry, KEYBOARD_LAYOUTS[heatmapLayout], 5);
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.2rem', marginBottom: '1.5rem' }}>
+                  {/* Hand Balance Card */}
+                  <div style={{ background: 'rgba(0, 0, 0, 0.3)', padding: '1.2rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '1rem', color: '#38bdf8', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>⚖️ Hand Load Balance</span>
+                      <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{balance.totalKeystrokes.toLocaleString()} Total Hits</span>
+                    </h4>
+
+                    {/* Dual Hand Bar */}
+                    <div style={{ display: 'flex', height: '14px', borderRadius: '6px', overflow: 'hidden', marginBottom: '8px' }}>
+                      <div style={{ width: `${balance.leftHandPct}%`, background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', transition: 'width 0.4s' }} />
+                      <div style={{ width: `${balance.rightHandPct}%`, background: 'linear-gradient(90deg, #a855f7, #c084fc)', transition: 'width 0.4s' }} />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '1.2rem' }}>
+                      <span style={{ color: '#60a5fa' }}>✋ Left Hand: {balance.leftHandPct}%</span>
+                      <span style={{ color: '#c084fc' }}>🤚 Right Hand: {balance.rightHandPct}%</span>
+                    </div>
+
+                    {/* 5 Finger Workload Breakdown */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {(Object.keys(balance.fingerLoads) as FingerId[]).filter(f => f !== 'TH').map((fingerId) => {
+                        const info = FINGERS[fingerId];
+                        const load = balance.fingerLoads[fingerId];
+                        return (
+                          <div key={fingerId} style={{ display: 'grid', gridTemplateColumns: '95px 1fr 40px', alignItems: 'center', gap: '8px', fontSize: '0.75rem' }}>
+                            <span style={{ color: info.color }}>{info.name}</span>
+                            <div className={styles.fingerProgressTrack}>
+                              <div className={styles.fingerProgressBar} style={{ width: `${Math.min(100, load.percentage * 3)}%`, backgroundColor: info.color }} />
+                            </div>
+                            <span style={{ textAlign: 'right', color: '#94a3b8', fontWeight: 'bold' }}>{load.percentage}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Bottleneck Keys & Weakness Drill Card */}
+                  <div style={{ background: 'rgba(0, 0, 0, 0.3)', padding: '1.2rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 10px 0', fontSize: '1rem', color: '#f87171', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>⚠️ Bottleneck & Problem Keys</span>
+                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>High Error & Latency</span>
+                      </h4>
+
+                      {bottlenecks.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '1rem' }}>
+                          {bottlenecks.map((bn, idx) => (
+                            <div key={idx} className={styles.bottleneckBadge} style={{ justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <strong style={{ fontSize: '1.1rem', color: '#fff', background: 'rgba(239, 68, 68, 0.4)', padding: '2px 8px', borderRadius: '4px' }}>
+                                  {bn.key.toUpperCase()}
+                                </strong>
+                                <span style={{ fontSize: '0.8rem' }}>({FINGERS[bn.finger]?.name})</span>
+                              </div>
+                              <div style={{ fontSize: '0.75rem', display: 'flex', gap: '10px' }}>
+                                <span style={{ color: '#fca5a5' }}>{bn.errorRatePct}% errors</span>
+                                <span style={{ color: '#fcd34d' }}>{bn.avgLatencyMs}ms</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#4ade80', fontSize: '0.9rem' }}>
+                          ✓ Outstanding precision! No significant typing bottlenecks detected yet.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Practice Drill Launcher */}
+                    <button 
+                      className={styles.btn} 
+                      style={{ width: '100%', marginTop: '1rem', background: 'linear-gradient(135deg, #10b981, #059669)', fontSize: '1rem', padding: '12px' }}
+                      onClick={() => startWeaknessDrill(bottlenecks.map(b => b.key))}
+                    >
+                      <FontAwesomeIcon icon={faBullseye} style={{ marginRight: '8px' }} />
+                      <span>Practice Targeted Weakness Drill</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <button 
+              className={styles.btn} 
+              style={{ width: '100%', background: 'rgba(255,255,255,0.1)' }} 
+              onClick={() => setShowHeatmapModal(false)}
+            >
+              Close Heatmap
+            </button>
+          </div>
+        </div>
+      )}
+
 
       {/* Live In-Game Co-Op Raid Party Meter */}
       {isPlaying && isCoopRaidMode && raidTeamStats.length > 0 && (
