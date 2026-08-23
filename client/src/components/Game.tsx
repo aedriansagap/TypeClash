@@ -1720,181 +1720,111 @@ export default function Game() {
           </div>
 
 
-          <h1 className={styles.title} style={{ marginBottom: '1rem' }}>TypeClash</h1>
-          
+          <h1 className={styles.title} style={{ marginBottom: '0.6rem', marginTop: '1.8rem' }}>TypeClash</h1>
+
           <div className={styles.menuGrid}>
-            {/* Left Column: Settings & Account */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
-              <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.5rem' }}>
-                <h3 className={styles.subtitle}>Match Duration</h3>
-                <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
-                  <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 30 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(30)}>30s</button>
-                  <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 60 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(60)}>1m</button>
-                  <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 180 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(180)}>3m</button>
-                  <button className={styles.btnSmall} style={{ flex: 1, padding: '10px 5px', background: matchDuration === 300 ? '#3b82f6' : 'rgba(255,255,255,0.1)' }} onClick={() => setMatchDuration(300)}>5m</button>
+            {/* Left Column: Game Setup, Solo, Daily Run & Boss Gauntlet */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', width: '100%' }}>
+              
+              {/* Match Setup & Modifiers Card */}
+              <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <h3 className={styles.subtitle} style={{ fontSize: '1.15rem', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FontAwesomeIcon icon={faClock} style={{ color: '#38bdf8', fontSize: '0.95rem' }} /> Match Duration
+                  </h3>
+                  {equippedWordPack && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid #38bdf8', padding: '3px 8px', borderRadius: '12px', fontSize: '0.75rem', color: '#38bdf8' }}>
+                      <span>{equippedWordPack.icon}</span>
+                      <span style={{ maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 'bold' }}>{equippedWordPack.title}</span>
+                      <span style={{ cursor: 'pointer', color: '#f87171', marginLeft: '4px', fontWeight: 'bold', fontSize: '0.9rem' }} onClick={() => handleEquipPack(null)} title="Reset to standard dictionary">×</span>
+                    </div>
+                  )}
                 </div>
-              </div>
 
-              <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.5rem' }}>
-                <h3 className={styles.subtitle} style={{ fontSize: '1.5rem' }}>Special Mods</h3>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'center', marginTop: '1rem' }}>
-                  <label className={`${styles.toggleLabel} ${mods.includeNumbers ? styles.toggleLabelActive : ''}`}>
-                    <input type="checkbox" checked={mods.includeNumbers} onChange={(e) => setMods({...mods, includeNumbers: e.target.checked})} style={{ display: 'none' }} />
-                    <div className={`${styles.toggleTrack} ${mods.includeNumbers ? styles.toggleTrackActive : ''}`}>
-                      <div className={`${styles.toggleThumb} ${mods.includeNumbers ? styles.toggleThumbActive : ''}`}></div>
-                    </div>
-                    Numbers
-                  </label>
-                  
-                  <label className={`${styles.toggleLabel} ${mods.includePunctuation ? styles.toggleLabelActive : ''}`}>
-                    <input type="checkbox" checked={mods.includePunctuation} onChange={(e) => setMods({...mods, includePunctuation: e.target.checked})} style={{ display: 'none' }} />
-                    <div className={`${styles.toggleTrack} ${mods.includePunctuation ? styles.toggleTrackActive : ''}`}>
-                      <div className={`${styles.toggleThumb} ${mods.includePunctuation ? styles.toggleThumbActive : ''}`}></div>
-                    </div>
-                    Punctuation
-                  </label>
-                  
-                  <label className={`${styles.toggleLabel} ${mods.longestWords ? styles.toggleLabelActive : ''}`}>
-                    <input type="checkbox" checked={mods.longestWords} onChange={(e) => setMods({...mods, longestWords: e.target.checked})} style={{ display: 'none' }} />
-                    <div className={`${styles.toggleTrack} ${mods.longestWords ? styles.toggleTrackActive : ''}`}>
-                      <div className={`${styles.toggleThumb} ${mods.longestWords ? styles.toggleThumbActive : ''}`}></div>
-                    </div>
-                    Long Words
-                  </label>
+                {/* Duration Pills */}
+                <div style={{ display: 'flex', gap: '0.4rem', width: '100%', marginBottom: '0.9rem' }}>
+                  {[30, 60, 180, 300].map((sec) => (
+                    <button 
+                      key={sec}
+                      className={styles.btnSmall} 
+                      style={{ 
+                        flex: 1, 
+                        padding: '8px 4px', 
+                        fontSize: '0.9rem',
+                        background: matchDuration === sec ? '#3b82f6' : 'rgba(255,255,255,0.06)',
+                        borderColor: matchDuration === sec ? '#60a5fa' : 'rgba(255,255,255,0.1)'
+                      }} 
+                      onClick={() => setMatchDuration(sec)}
+                    >
+                      {sec === 60 ? '1m' : sec === 180 ? '3m' : sec === 300 ? '5m' : `${sec}s`}
+                    </button>
+                  ))}
                 </div>
-              </div>
 
-              {isGuest && (
-                <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b', padding: '1rem', borderRadius: '8px', textAlign: 'center', width: '100%' }}>
-                  <p style={{ color: '#fcd34d', marginBottom: '0.5rem', fontWeight: 'bold' }}>Playing as Guest</p>
-                  <p style={{ fontSize: '0.85rem', color: '#d1d5db', marginBottom: '0.75rem' }}>Create an account or connect Google to permanently preserve your Elo rating & match history!</p>
-                  <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
-                    <button className={styles.btnSmall} onClick={() => { setAuthMode('REGISTER'); setUserId(null); }}>Upgrade with Password</button>
-                    <button className={styles.btnSmall} style={{ background: '#ffffff', color: '#1f2937', fontWeight: '600' }} onClick={() => handleOAuthLogin('google')}>Connect Google Account</button>
+                {/* Special Modifiers */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.75rem' }}>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FontAwesomeIcon icon={faSliders} style={{ fontSize: '0.75rem' }} /> Special Modifiers
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'flex-start' }}>
+                    <label className={`${styles.toggleLabel} ${mods.includeNumbers ? styles.toggleLabelActive : ''}`} style={{ fontSize: '0.85rem' }}>
+                      <input type="checkbox" checked={mods.includeNumbers} onChange={(e) => setMods({...mods, includeNumbers: e.target.checked})} style={{ display: 'none' }} />
+                      <div className={`${styles.toggleTrack} ${mods.includeNumbers ? styles.toggleTrackActive : ''}`} style={{ width: '32px', height: '18px' }}>
+                        <div className={`${styles.toggleThumb} ${mods.includeNumbers ? styles.toggleThumbActive : ''}`} style={{ width: '14px', height: '14px' }}></div>
+                      </div>
+                      Numbers
+                    </label>
+                    
+                    <label className={`${styles.toggleLabel} ${mods.includePunctuation ? styles.toggleLabelActive : ''}`} style={{ fontSize: '0.85rem' }}>
+                      <input type="checkbox" checked={mods.includePunctuation} onChange={(e) => setMods({...mods, includePunctuation: e.target.checked})} style={{ display: 'none' }} />
+                      <div className={`${styles.toggleTrack} ${mods.includePunctuation ? styles.toggleTrackActive : ''}`} style={{ width: '32px', height: '18px' }}>
+                        <div className={`${styles.toggleThumb} ${mods.includePunctuation ? styles.toggleThumbActive : ''}`} style={{ width: '14px', height: '14px' }}></div>
+                      </div>
+                      Punctuation
+                    </label>
+                    
+                    <label className={`${styles.toggleLabel} ${mods.longestWords ? styles.toggleLabelActive : ''}`} style={{ fontSize: '0.85rem' }}>
+                      <input type="checkbox" checked={mods.longestWords} onChange={(e) => setMods({...mods, longestWords: e.target.checked})} style={{ display: 'none' }} />
+                      <div className={`${styles.toggleTrack} ${mods.longestWords ? styles.toggleTrackActive : ''}`} style={{ width: '32px', height: '18px' }}>
+                        <div className={`${styles.toggleThumb} ${mods.longestWords ? styles.toggleThumbActive : ''}`} style={{ width: '14px', height: '14px' }}></div>
+                      </div>
+                      Long Words
+                    </label>
                   </div>
                 </div>
-              )}
-            </div>
-
-
-            {/* Right Column: Game Modes & Multiplayer */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
-              <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.5rem' }}>
-                <h3 className={styles.subtitle}>Multiplayer</h3>
-                <button className={styles.btn} style={{ width: '100%', marginTop: '0', marginBottom: '1rem', background: 'linear-gradient(135deg, #10b981, #059669)', fontSize: '1.2rem', padding: '12px' }} onClick={findMatch}>Find Match (Auto)</button>
-                <div className={styles.orDivider} style={{ marginBottom: '1rem' }}>or play privately</div>
-                <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginBottom: '1rem' }}>
-                  <button className={styles.btnSmall} style={{ flex: 1, background: 'rgba(255,255,255,0.1)' }} onClick={createRoom}>Create Room</button>
-                </div>
-                <div className={styles.inputGroup} style={{ width: '100%' }}>
-                  <input 
-                    type="text" 
-                    className={styles.input} 
-                    style={{ flex: 1 }}
-                    placeholder="Room Code"
-                    value={roomCode}
-                    onChange={(e) => setRoomCode(e.target.value)}
-                  />
-                  <button className={styles.btnSmall} onClick={joinRoom}>Join</button>
-                </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '1rem', width: '100%', marginBottom: '0.8rem' }}>
-                <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px' }} onClick={playSinglePlayer}>Play Solo</button>
-                <button className={styles.btn} style={{ flex: 1, marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)' }} onClick={playDailyRun}>Daily Run</button>
+              {/* Solo & Daily Run Action Duo */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', width: '100%' }}>
+                <button 
+                  className={styles.btn} 
+                  style={{ marginTop: 0, fontSize: '1.1rem', padding: '13px 10px', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', boxShadow: '0 4px 16px rgba(37, 99, 235, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
+                  onClick={playSinglePlayer}
+                >
+                  <FontAwesomeIcon icon={faBolt} style={{ color: '#93c5fd' }} />
+                  <span>Play Solo</span>
+                </button>
+                <button 
+                  className={styles.btn} 
+                  style={{ marginTop: 0, fontSize: '1.1rem', padding: '13px 10px', background: 'linear-gradient(135deg, #d97706, #b45309)', boxShadow: '0 4px 16px rgba(217, 119, 6, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
+                  onClick={playDailyRun}
+                >
+                  <FontAwesomeIcon icon={faFire} style={{ color: '#fde68a' }} />
+                  <span>Daily Run</span>
+                </button>
               </div>
 
-              {/* Equipped Word Pack Active Banner */}
-              {equippedWordPack && (
-                <div style={{
-                  width: '100%',
-                  marginBottom: '0.8rem',
-                  background: 'rgba(56, 189, 248, 0.12)',
-                  border: '1px solid #38bdf8',
-                  borderRadius: '10px',
-                  padding: '10px 14px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  boxShadow: '0 0 15px rgba(56, 189, 248, 0.2)'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.5rem' }}>{equippedWordPack.icon}</span>
-                    <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontWeight: 'bold', color: '#38bdf8', fontSize: '0.95rem' }}>
-                        {equippedWordPack.title}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                        Active Custom Pack ({equippedWordPack.words?.length || 0} words)
-                      </div>
-                    </div>
-                  </div>
-                  <button 
-                    className={styles.btnSmall}
-                    style={{ padding: '4px 10px', fontSize: '0.75rem', background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#fca5a5' }}
-                    onClick={() => handleEquipPack(null)}
-                  >
-                    Reset
-                  </button>
-                </div>
-              )}
-
+              {/* Boss Rush & Raids Gauntlet Card */}
               <button 
                 className={styles.btn} 
                 style={{ 
                   width: '100%', 
                   marginTop: 0, 
-                  marginBottom: '0.8rem',
-                  fontSize: '1.2rem', 
-                  padding: '12px', 
-                  background: 'linear-gradient(135deg, #0284c7, #0369a1)',
-                  border: '1px solid #38bdf8',
-                  boxShadow: '0 0 16px rgba(56, 189, 248, 0.3)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px'
-                }} 
-                onClick={() => { loadWorkshopPacks(); setShowWorkshopModal(true); }}
-              >
-                <FontAwesomeIcon icon={faBox} style={{ color: '#bae6fd' }} />
-                <span>Word Pack Studio & Workshop</span>
-              </button>
-
-              <button 
-                className={styles.btn} 
-                style={{ 
-                  width: '100%', 
-                  marginTop: 0, 
-                  marginBottom: '0.8rem',
-                  fontSize: '1.2rem', 
-                  padding: '12px', 
-                  background: 'linear-gradient(135deg, #d97706, #b45309)',
-                  border: '1px solid #f59e0b',
-                  boxShadow: '0 0 16px rgba(245, 158, 11, 0.3)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px'
-                }} 
-                onClick={() => setShowHeatmapModal(true)}
-              >
-                <FontAwesomeIcon icon={faKeyboard} style={{ color: '#fde68a' }} />
-                <span>Keyboard Heatmap & Ergonomics</span>
-              </button>
-
-
-              <button 
-                className={styles.btn} 
-                style={{ 
-                  width: '100%', 
-                  marginTop: 0, 
-                  marginBottom: '0.8rem',
-                  fontSize: '1.25rem', 
+                  fontSize: '1.15rem', 
                   padding: '13px', 
                   background: 'linear-gradient(135deg, #dc2626, #991b1b)',
                   border: '1px solid #f87171',
-                  boxShadow: '0 0 20px rgba(220, 38, 38, 0.45)',
+                  boxShadow: '0 0 20px rgba(220, 38, 38, 0.4)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -1903,13 +1833,105 @@ export default function Game() {
                 onClick={() => setShowBossModal(true)}
               >
                 <FontAwesomeIcon icon={faSkull} className={styles.iconPulse} style={{ color: '#fca5a5' }} />
-                <span>Boss Rush & Raids</span>
+                <span>Boss Rush & Co-Op Raids</span>
               </button>
 
-              <button className={styles.btn} style={{ width: '100%', marginTop: 0, fontSize: '1.2rem', padding: '12px', background: 'linear-gradient(135deg, #1e40af, #1e3a8a)' }} onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}>Leaderboard</button>
+              {isGuest && (
+                <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b', padding: '0.75rem 1rem', borderRadius: '10px', textAlign: 'center', width: '100%', fontSize: '0.8rem' }}>
+                  <span style={{ color: '#fcd34d', fontWeight: 'bold' }}>Playing as Guest • </span>
+                  <span style={{ color: '#cbd5e1' }}>Preserve Elo & history: </span>
+                  <button className={styles.btnSmall} style={{ display: 'inline-flex', padding: '2px 8px', fontSize: '0.75rem', marginLeft: '6px' }} onClick={() => { setAuthMode('REGISTER'); setUserId(null); }}>Create Account</button>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Multiplayer Arena & 2x2 Feature Studios */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', width: '100%' }}>
+              
+              {/* Multiplayer Card */}
+              <div className={styles.multiplayerBox} style={{ width: '100%', margin: 0, padding: '1.25rem' }}>
+                <h3 className={styles.subtitle} style={{ fontSize: '1.15rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <FontAwesomeIcon icon={faCrown} style={{ color: '#10b981', fontSize: '0.95rem' }} /> Multiplayer Arena
+                </h3>
+                
+                <button 
+                  className={styles.btn} 
+                  style={{ width: '100%', marginTop: 0, marginBottom: '0.75rem', background: 'linear-gradient(135deg, #10b981, #059669)', fontSize: '1.1rem', padding: '12px', boxShadow: '0 4px 16px rgba(16, 185, 129, 0.35)' }} 
+                  onClick={findMatch}
+                >
+                  <FontAwesomeIcon icon={faBolt} style={{ marginRight: '6px' }} /> Quick Match (Auto SBMM)
+                </button>
+                
+                <div className={styles.orDivider} style={{ margin: '0.4rem 0 0.65rem 0', fontSize: '0.75rem' }}>or play in a private lobby</div>
+                
+                <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                  <button className={styles.btnSmall} style={{ flex: 1, background: 'rgba(255,255,255,0.08)', padding: '10px 8px', fontSize: '0.85rem' }} onClick={createRoom}>Create Room</button>
+                  <div className={styles.inputGroup} style={{ flex: 1.4 }}>
+                    <input 
+                      type="text" 
+                      className={styles.input} 
+                      style={{ flex: 1, padding: '8px 10px', fontSize: '0.85rem' }}
+                      placeholder="Room Code"
+                      value={roomCode}
+                      onChange={(e) => setRoomCode(e.target.value)}
+                    />
+                    <button className={styles.btnSmall} style={{ padding: '8px 14px', fontSize: '0.85rem' }} onClick={joinRoom}>Join</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Creative Studios & Analytics Hub (Sleek 2x2 Grid) */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', width: '100%' }}>
+                
+                {/* 1. Word Pack Studio */}
+                <div 
+                  className={styles.hubFeatureCard}
+                  onClick={() => { loadWorkshopPacks(); setShowWorkshopModal(true); }}
+                  style={{ borderLeft: '3px solid #38bdf8' }}
+                >
+                  <div style={{ fontSize: '1.4rem' }}>📦</div>
+                  <strong style={{ fontSize: '0.92rem', color: '#38bdf8' }}>Word Packs</strong>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Custom Vocabulary</span>
+                </div>
+
+                {/* 2. Keyboard Heatmap */}
+                <div 
+                  className={styles.hubFeatureCard}
+                  onClick={() => setShowHeatmapModal(true)}
+                  style={{ borderLeft: '3px solid #f59e0b' }}
+                >
+                  <div style={{ fontSize: '1.4rem' }}>⌨️</div>
+                  <strong style={{ fontSize: '0.92rem', color: '#f59e0b' }}>Key Heatmap</strong>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Finger Ergonomics</span>
+                </div>
+
+                {/* 3. Leaderboards */}
+                <div 
+                  className={styles.hubFeatureCard}
+                  onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}
+                  style={{ borderLeft: '3px solid #818cf8' }}
+                >
+                  <div style={{ fontSize: '1.4rem' }}>🏆</div>
+                  <strong style={{ fontSize: '0.92rem', color: '#a5b4fc' }}>Leaderboards</strong>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Global & Raids</span>
+                </div>
+
+                {/* 4. Player Profile */}
+                <div 
+                  className={styles.hubFeatureCard}
+                  onClick={loadProfile}
+                  style={{ borderLeft: '3px solid #ec4899' }}
+                >
+                  <div style={{ fontSize: '1.4rem' }}>👤</div>
+                  <strong style={{ fontSize: '0.92rem', color: '#f472b6' }}>My Profile</strong>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Stats & Themes</span>
+                </div>
+
+              </div>
 
             </div>
           </div>
+
         </div>
       )}
 
