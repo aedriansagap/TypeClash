@@ -946,6 +946,7 @@ interface RaidPlayer {
   lives: number;
   isDead: boolean;
   isHost: boolean;
+  combo?: number;
 }
 
 interface RaidRoomData {
@@ -1498,7 +1499,13 @@ io.on('connection', (socket) => {
 
     // Scale HP for party size: 1 + (partySize - 1) * 0.75
     const partySize = room.players.length;
-    const baseHp = room.bossId === 'chronos' ? 6500 : room.bossId === 'glitch' ? 4500 : 3000;
+    const baseHpMap: Record<string, number> = {
+      ignis: 3000,
+      glitch: 4500,
+      chronos: 6500,
+      aetheria: 8500
+    };
+    const baseHp = baseHpMap[room.bossId] || 3000;
     const diffMult = room.difficulty === 'mythic' ? 2.2 : room.difficulty === 'heroic' ? 1.5 : 1.0;
     const coopMult = 1 + (partySize - 1) * 0.75;
     const totalMaxHp = Math.round(baseHp * diffMult * coopMult);
@@ -1514,6 +1521,7 @@ io.on('connection', (socket) => {
         rp.damageDealt = 0;
         rp.lives = 4;
         rp.isDead = false;
+        rp.combo = 0;
       }
     });
 
@@ -1627,6 +1635,56 @@ io.on('connection', (socket) => {
       }
       io.to(roomId).emit('raid_boss_spell_trigger', { abilityId, shieldHp: room.shieldHp });
     }
+  });
+
+  socket.on('raid_boss_spell_interrupt', ({ roomId, abilityId }) => {
+    const room = raidRooms.get(roomId);
+    const player = raidPlayers.get(socket.id);
+    if (room && room.status === 'playing') {
+      io.to(roomId).emit('raid_boss_interrupted', {
+        abilityId,
+        interrupterId: socket.id,
+        interrupterName: player?.username || 'Teammate'
+      });
+    }
+  });
+
+  socket.on('raid_player_revive', ({ roomId, targetPlayerId }) => {
+    const room = raidRooms.get(roomId);
+    const reviver = raidPlayers.get(socket.id);
+    const target = raidPlayers.get(targetPlayerId);
+    if (!room || !reviver || !target || room.status !== 'playing') return;
+
+    target.isDead = false;
+    target.lives = 2;
+
+    io.to(roomId).emit('raid_player_revived', {
+      targetPlayerId,
+      targetUsername: target.username,
+      revivedById: socket.id,
+      revivedByName: reviver.username
+    });
+
+    io.to(roomId).emit('raid_team_stats_sync', {
+      players: room.players.map(pId => raidPlayers.get(pId))
+    });
+  });
+
+  socket.on('raid_combo_update', ({ roomId, combo }) => {
+    const room = raidRooms.get(roomId);
+    const player = raidPlayers.get(socket.id);
+    if (!room || !player || room.status !== 'playing') return;
+    player.combo = combo;
+
+    // Check Overdrive: 2 or more players with combo >= 10, or total team combo >= 25
+    const highComboCount = room.players.filter(pId => (raidPlayers.get(pId)?.combo || 0) >= 10).length;
+    const totalTeamCombo = room.players.reduce((sum, pId) => sum + (raidPlayers.get(pId)?.combo || 0), 0);
+    const isOverdrive = highComboCount >= 2 || totalTeamCombo >= 25;
+
+    io.to(roomId).emit('raid_synergy_update', {
+      isOverdrive,
+      totalTeamCombo
+    });
   });
 
   socket.on('raid_player_death', ({ roomId }) => {

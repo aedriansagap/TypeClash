@@ -183,6 +183,8 @@ export default function Game() {
     players: Array<{ id: string; username: string; rating: number; isReady: boolean; isHost: boolean }>;
   } | null>(null);
   const [raidTeamStats, setRaidTeamStats] = useState<Array<{ id: string; username: string; damageDealt: number; wpm: number; accuracy: number; lives: number; isDead: boolean }>>([]);
+  const [raidBannerNotice, setRaidBannerNotice] = useState<string | null>(null);
+  const [isTeamOverdrive, setIsTeamOverdrive] = useState(false);
   const [bossVictoryData, setBossVictoryData] = useState<{
     boss: BossConfig;
     clearTimeSeconds: number;
@@ -403,6 +405,13 @@ export default function Game() {
         });
         
         setMatchHistory(prev => [...prev, { time: prev.length, p1: metrics.wpm, opponent: topOppWpm }]);
+
+        if (socketRef.current && isCoopRaidMode && raidLobbyData) {
+          socketRef.current.emit('raid_combo_update', {
+            roomId: raidLobbyData.roomId,
+            combo: gameState.combo
+          });
+        }
       };
 
       engineRef.current.onBossDamageDealt = (damage, isCrit, currentHp) => {
@@ -435,8 +444,26 @@ export default function Game() {
         }
       };
 
+      engineRef.current.onBossCastInterrupted = (abilityId) => {
+        if (socketRef.current && isCoopRaidMode && raidLobbyData) {
+          socketRef.current.emit('raid_boss_spell_interrupt', {
+            roomId: raidLobbyData.roomId,
+            abilityId
+          });
+        }
+      };
+
+      engineRef.current.onPlayerRevivedByMe = (targetPlayerId) => {
+        if (socketRef.current && isCoopRaidMode && raidLobbyData) {
+          socketRef.current.emit('raid_player_revive', {
+            roomId: raidLobbyData.roomId,
+            targetPlayerId
+          });
+        }
+      };
+
     }
-  }, [isSinglePlayer, isCoopRaidMode, raidLobbyData, playerMetrics]);
+  }, [isSinglePlayer, isCoopRaidMode, raidLobbyData, playerMetrics, gameState.combo]);
 
   useEffect(() => {
     if (engineRef.current) {
@@ -621,8 +648,9 @@ export default function Game() {
           isDead: false
         })));
 
+        const isHost = data.players.find(p => p.id === socketRef.current?.id)?.isHost || false;
         if (engineRef.current) {
-          engineRef.current.startBossFight(data.bossId, data.difficulty, true, data.partySize, data.seed);
+          engineRef.current.startBossFight(data.bossId, data.difficulty, true, data.partySize, data.seed, isHost);
         }
       });
 
@@ -646,13 +674,47 @@ export default function Game() {
 
       socketRef.current.on('raid_boss_spell_trigger', (data: { abilityId: string, shieldHp: number }) => {
         if (engineRef.current) {
-          engineRef.current.executeBossAbility(data.abilityId);
+          // If not host, trigger cast bar and interrupt glyph on client
+          if (!engineRef.current.isRaidHost && !engineRef.current.bossCastState) {
+            engineRef.current.triggerBossCast(data.abilityId);
+          }
           if (data.shieldHp) engineRef.current.bossShieldHp = data.shieldHp;
         }
       });
 
+      socketRef.current.on('raid_boss_interrupted', (data: { abilityId: string, interrupterId: string, interrupterName: string }) => {
+        if (engineRef.current && data.interrupterId !== socketRef.current?.id) {
+          engineRef.current.interruptBossCast(false);
+        }
+        setRaidBannerNotice(`⚡ ${data.interrupterName} INTERRUPTED THE BOSS! STAGGERED (+50% DMG)`);
+        setTimeout(() => setRaidBannerNotice(null), 4000);
+      });
+
       socketRef.current.on('raid_player_down', (data: { id: string, username: string }) => {
         setRaidTeamStats(prev => prev.map(p => p.id === data.id ? { ...p, isDead: true, lives: 0 } : p));
+        if (data.id !== socketRef.current?.id && engineRef.current) {
+          engineRef.current.spawnReviveBeacon(data.id, data.username);
+        }
+        setRaidBannerNotice(`⚠️ ${data.username} IS DOWN! TYPE REVIVE BEACON TO RESCUE!`);
+        setTimeout(() => setRaidBannerNotice(null), 5000);
+      });
+
+      socketRef.current.on('raid_player_revived', (data: { targetPlayerId: string, targetUsername: string, revivedById: string, revivedByName: string }) => {
+        setRaidTeamStats(prev => prev.map(p => p.id === data.targetPlayerId ? { ...p, isDead: false, lives: 2 } : p));
+        if (data.targetPlayerId === socketRef.current?.id && engineRef.current) {
+          engineRef.current.revivePlayer(2);
+        } else if (engineRef.current) {
+          engineRef.current.removeReviveBeacon(data.targetPlayerId);
+        }
+        setRaidBannerNotice(`💚 ${data.revivedByName} RESCUED ${data.targetUsername}!`);
+        setTimeout(() => setRaidBannerNotice(null), 4500);
+      });
+
+      socketRef.current.on('raid_synergy_update', (data: { isOverdrive: boolean, totalTeamCombo: number }) => {
+        setIsTeamOverdrive(data.isOverdrive);
+        if (engineRef.current) {
+          engineRef.current.setTeamOverdrive(data.isOverdrive);
+        }
       });
 
       socketRef.current.on('raid_victory_all', (data: { bossId: string, bossName: string, difficulty: BossDifficulty, clearTimeSeconds: number, totalTeamDamage: number, rankings: any[] }) => {
@@ -1999,12 +2061,12 @@ export default function Game() {
             </div>
 
             {leaderboardTab === 'RAIDS' && (
-              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.2rem', width: '100%' }}>
-                {['all', 'ignis', 'glitch', 'chronos'].map(bId => (
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.2rem', width: '100%', flexWrap: 'wrap' }}>
+                {['all', ...Object.keys(BOSSES)].map(bId => (
                   <button 
                     key={bId}
                     className={styles.btnSmall}
-                    style={{ flex: 1, textTransform: 'capitalize', background: activeBossLeaderboardTab === bId ? '#dc2626' : 'rgba(255,255,255,0.08)' }}
+                    style={{ flex: 1, minWidth: '100px', textTransform: 'capitalize', background: activeBossLeaderboardTab === bId ? '#dc2626' : 'rgba(255,255,255,0.08)' }}
                     onClick={() => loadLeaderboard('RAIDS', leaderboardMode, matchDuration, bId)}
                   >
                     {bId === 'all' ? 'All Bosses' : BOSSES[bId]?.name.split(',')[0]}
@@ -2866,19 +2928,80 @@ export default function Game() {
             </span>
             <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Live DPS</span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+
+          {/* Team Overdrive Badge */}
+          {isTeamOverdrive && (
+            <div style={{
+              background: 'linear-gradient(90deg, #f59e0b, #eab308)',
+              color: '#000',
+              fontWeight: 'bold',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '0.75rem',
+              textAlign: 'center',
+              marginBottom: '8px',
+              boxShadow: '0 0 12px rgba(245, 158, 11, 0.5)',
+              letterSpacing: '0.5px'
+            }}>
+              ⚡ TEAM OVERDRIVE (1.5x DMG) ⚡
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {raidTeamStats.map((p, idx) => (
-              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', opacity: p.isDead ? 0.5 : 1 }}>
-                <span style={{ color: p.isDead ? '#ef4444' : p.id === socketRef.current?.id ? '#38bdf8' : '#e2e8f0', fontWeight: p.id === socketRef.current?.id ? 'bold' : 'normal' }}>
-                  {p.isDead ? '💀 ' : '⚔️ '}{p.username}
-                </span>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <span style={{ color: '#4ade80', fontWeight: 'bold' }}>{p.damageDealt?.toLocaleString()} DMG</span>
-                  <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{p.wpm || 0} WPM</span>
+              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px 6px', background: p.isDead ? 'rgba(239, 68, 68, 0.12)' : 'rgba(255,255,255,0.03)', borderRadius: '4px', border: p.isDead ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid transparent' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                  <span style={{ color: p.isDead ? '#ef4444' : p.id === socketRef.current?.id ? '#38bdf8' : '#e2e8f0', fontWeight: p.id === socketRef.current?.id ? 'bold' : 'normal', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {p.isDead ? '💀' : '⚔️'} {p.username}
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ color: '#4ade80', fontWeight: 'bold' }}>{p.damageDealt?.toLocaleString()} DMG</span>
+                    <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{p.wpm || 0} WPM</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
+                  <div style={{ display: 'flex', gap: '2px' }}>
+                    {Array.from({ length: Math.max(0, p.lives) }).map((_, i) => (
+                      <span key={i} style={{ color: '#ef4444' }}>❤️</span>
+                    ))}
+                  </div>
+                  {p.isDead && p.id !== socketRef.current?.id && (
+                    <span style={{ color: '#10b981', fontWeight: 'bold', fontSize: '0.68rem', letterSpacing: '0.3px' }}>
+                      [TYPE BEACON TO RESCUE]
+                    </span>
+                  )}
+                  {p.isDead && p.id === socketRef.current?.id && (
+                    <span style={{ color: '#f87171', fontWeight: 'bold', fontSize: '0.68rem' }}>
+                      [AWAITING TEAM RESCUE]
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Floating Raid Announcement Banner */}
+      {isPlaying && raidBannerNotice && (
+        <div style={{
+          position: 'fixed',
+          top: '80px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 999,
+          background: 'rgba(15, 23, 42, 0.94)',
+          border: '1px solid #38bdf8',
+          boxShadow: '0 0 24px rgba(56, 189, 248, 0.4)',
+          padding: '10px 24px',
+          borderRadius: '8px',
+          fontWeight: 'bold',
+          fontSize: '0.95rem',
+          color: '#f8fafc',
+          pointerEvents: 'none'
+        }}>
+          {raidBannerNotice}
         </div>
       )}
 

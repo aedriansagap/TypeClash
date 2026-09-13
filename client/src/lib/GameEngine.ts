@@ -128,6 +128,7 @@ export class GameEngine {
   public bossShieldHp: number = 0;
   public bossShieldMaxHp: number = 0;
   public isCoopRaid: boolean = false;
+  public isRaidHost: boolean = false;
   public partySize: number = 1;
   public totalBossDamageDealt: number = 0;
   public bossCastState: {
@@ -137,7 +138,18 @@ export class GameEngine {
     progress: number;
     duration: number;
     icon: string;
+    interruptible: boolean;
+    interruptThreshold: number;
+    damageDuringCast: number;
+    interruptWordId?: string;
   } | null = null;
+  public bossStunTimer: number = 0;
+  public bossStunMaxTimer: number = 4000;
+  public synergyMultiplier: number = 1.0;
+  public isTeamOverdrive: boolean = false;
+  public temporalRiftTimer: number = 0;
+  public enrageWarningFired: boolean = false;
+  public isBossBerserk: boolean = false;
   private bossAbilityTimers: Record<string, number> = {};
   private bossDamageNumbers: FloatingCombatNumber[] = [];
   public bossDialogue: { text: string; timer: number } | null = null;
@@ -154,6 +166,8 @@ export class GameEngine {
   public onBossDamageDealt?: (damage: number, isCrit: boolean, currentHp: number) => void;
   public onBossDefeated?: (boss: BossConfig, clearTimeSeconds: number, stats: { totalDamage: number; wpm: number; maxCombo: number; accuracy: number }) => void;
   public onBossSpellCast?: (abilityId: string) => void;
+  public onBossCastInterrupted?: (abilityId: string) => void;
+  public onPlayerRevivedByMe?: (targetPlayerId: string) => void;
 
   // Custom Word Pack
   public activeWordPack: WordPack | null = null;
@@ -215,6 +229,13 @@ export class GameEngine {
 
     this.modifiers = modifiers;
     this.matchDuration = durationMs;
+    this.isRaidHost = false;
+    this.bossStunTimer = 0;
+    this.synergyMultiplier = 1.0;
+    this.isTeamOverdrive = false;
+    this.temporalRiftTimer = 0;
+    this.enrageWarningFired = false;
+    this.isBossBerserk = false;
     this.state = { 
       lives: 3, combo: 0, maxCombo: 0, score: 0, isGameOver: false, 
       timeLeft: Math.ceil(durationMs/1000), survived: false,
@@ -242,7 +263,8 @@ export class GameEngine {
     difficulty: BossDifficulty = 'normal', 
     isCoop: boolean = false, 
     partySize: number = 1, 
-    seed?: string
+    seed?: string,
+    isHost: boolean = false
   ) {
     this.keyStats.clear();
     this.lastKeyTime = 0;
@@ -251,7 +273,14 @@ export class GameEngine {
 
     this.bossDifficulty = difficulty;
     this.isCoopRaid = isCoop;
+    this.isRaidHost = isHost;
     this.partySize = Math.max(1, partySize);
+    this.bossStunTimer = 0;
+    this.synergyMultiplier = 1.0;
+    this.isTeamOverdrive = false;
+    this.temporalRiftTimer = 0;
+    this.enrageWarningFired = false;
+    this.isBossBerserk = false;
     
     const diffMultiplier = BOSS_DIFFICULTIES[difficulty].hpMultiplier;
     const coopMultiplier = isCoop ? 1 + (this.partySize - 1) * 0.75 : 1;
@@ -292,6 +321,137 @@ export class GameEngine {
     this.sound.playBossRoar();
     this.sound.startBossBGM(boss.id, 1);
     this.loop(this.lastTime);
+  }
+
+  public triggerBossCast(abilityId: string) {
+    if (!this.bossEntity || this.state.isGameOver) return;
+    const ability = this.bossEntity.abilities.find(a => a.id === abilityId);
+    if (!ability) return;
+
+    let interruptWordId: string | undefined = undefined;
+    if (ability.interruptible) {
+      const rect = this.canvas.getBoundingClientRect();
+      const glyphs = ['DISRUPT', 'OVERRIDE', 'PARITY_BREAK', 'SHUTDOWN', 'SEVER_LINK', 'PURGE_THREAD'];
+      const chosenGlyph = glyphs[Math.floor(this.random() * glyphs.length)];
+      interruptWordId = `interrupt_${this.random().toString(36).substring(2, 9)}`;
+
+      this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
+      const textWidth = this.ctx.measureText(chosenGlyph).width;
+      const minX = textWidth / 2 + 20;
+      const maxX = rect.width - (textWidth / 2) - 20;
+
+      this.words.push({
+        id: interruptWordId,
+        text: chosenGlyph,
+        typed: '',
+        x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
+        y: -30,
+        speed: this.baseSpeed * 0.9,
+        isJunk: false,
+        isGolden: true,
+        hasTypo: false,
+        color: '#06b6d4'
+      });
+    }
+
+    this.bossCastState = {
+      abilityId: ability.id,
+      abilityName: ability.name,
+      warningText: ability.warningText,
+      progress: 0,
+      duration: ability.castTime,
+      icon: ability.icon,
+      interruptible: !!ability.interruptible,
+      interruptThreshold: ability.interruptThreshold || 600,
+      damageDuringCast: 0,
+      interruptWordId
+    };
+
+    this.sound.playBossCastWarning();
+    this.shakeIntensity = 8;
+  }
+
+  public interruptBossCast(emitNetwork: boolean = true) {
+    if (!this.bossCastState) return;
+    const abilityId = this.bossCastState.abilityId;
+
+    if (this.bossCastState.interruptWordId) {
+      this.words = this.words.filter(w => w.id !== this.bossCastState!.interruptWordId);
+    }
+
+    this.bossCastState = null;
+    this.bossStunTimer = 4000;
+    this.bossStunMaxTimer = 4000;
+    this.sound.playBossInterrupted();
+    this.sound.playBossStaggered();
+    this.shakeIntensity = 18;
+    this.triggerScreenFlash('rgba(6, 182, 212, 0.4)', 450);
+    const rect = this.canvas.getBoundingClientRect();
+    this.spawnShockwave(rect.width / 2, 60, '#06b6d4', 85);
+    this.spawnPopup(rect.width / 2, 70, '⚡ INTERRUPTED! BOSS STAGGERED (+50% DMG) ⚡', '#38bdf8', true);
+
+    if (emitNetwork) {
+      this.onBossCastInterrupted?.(abilityId);
+    }
+  }
+
+  public spawnReviveBeacon(targetPlayerId: string, playerName: string) {
+    if (this.state.isGameOver || !this.isCoopRaid) return;
+    if (this.words.some(w => w.id === `revive_${targetPlayerId}`)) return;
+
+    const cleanName = playerName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase() || 'ALLY';
+    const text = `REVIVE_${cleanName}`;
+    const rect = this.canvas.getBoundingClientRect();
+    this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
+    const textWidth = this.ctx.measureText(text).width;
+    const minX = textWidth / 2 + 20;
+    const maxX = rect.width - (textWidth / 2) - 20;
+
+    this.words.push({
+      id: `revive_${targetPlayerId}`,
+      text,
+      typed: '',
+      x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
+      y: -40,
+      speed: this.baseSpeed * 0.8,
+      isJunk: false,
+      isGolden: true,
+      hasTypo: false,
+      color: '#10b981'
+    });
+  }
+
+  public removeReviveBeacon(targetPlayerId: string) {
+    this.words = this.words.filter(w => w.id !== `revive_${targetPlayerId}`);
+  }
+
+  public revivePlayer(lives: number = 2) {
+    this.state.lives = lives;
+    this.state.isGameOver = false;
+    this.state.survived = false;
+    this.sound.playBossRevive();
+    this.triggerScreenFlash('rgba(16, 185, 129, 0.45)', 500);
+    const rect = this.canvas.getBoundingClientRect();
+    this.spawnShockwave(rect.width / 2, rect.height / 2, '#10b981', 100);
+    this.spawnPopup(rect.width / 2, rect.height / 2 - 40, 'REVIVED! 💚 +2 LIVES', '#10b981', true);
+    this.notifyState();
+    if (this.bossEntity) {
+      this.sound.startBossBGM(this.bossEntity.id, this.bossPhase);
+    }
+    this.lastTime = performance.now();
+    this.loop(this.lastTime);
+  }
+
+  public setTeamOverdrive(active: boolean) {
+    if (this.isTeamOverdrive === active) return;
+    this.isTeamOverdrive = active;
+    this.synergyMultiplier = active ? 1.5 : 1.0;
+    if (active) {
+      this.sound.playTeamSynergy();
+      this.triggerScreenFlash('rgba(251, 191, 36, 0.35)', 400);
+      const rect = this.canvas.getBoundingClientRect();
+      this.spawnPopup(rect.width / 2, rect.height / 2, '⚡ TEAM OVERDRIVE! (1.5x DMG) ⚡', '#fbbf24', true);
+    }
   }
 
 
@@ -363,31 +523,57 @@ export class GameEngine {
       this.heatwaveTimer -= deltaTime;
     }
 
+    if (this.bossStunTimer > 0) {
+      this.bossStunTimer -= deltaTime;
+      if (this.bossStunTimer <= 0) {
+        this.bossStunTimer = 0;
+      }
+    }
+
+    if (this.temporalRiftTimer > 0) {
+      this.temporalRiftTimer -= deltaTime;
+    }
+
+    // Boss Enrage 30s Warning & Berserk Mode
+    if (this.bossEntity && !this.state.isGameOver) {
+      const remainingMs = this.matchDuration - this.timeElapsed;
+      if (remainingMs <= 30000 && !this.enrageWarningFired && remainingMs > 0) {
+        this.enrageWarningFired = true;
+        this.sound.playEnrageWarning();
+        this.triggerScreenFlash('rgba(239, 68, 68, 0.45)', 600);
+        this.bossDialogue = { text: "ENRAGE IMMINENT! SUBMIT TO OBLIVION!", timer: 4500 };
+      }
+      if (remainingMs <= 0 && !this.isBossBerserk) {
+        this.isBossBerserk = true;
+        this.shakeIntensity = 25;
+        this.triggerScreenFlash('rgba(239, 68, 68, 0.75)', 1000);
+        this.bossDialogue = { text: "BERSERK OVERDRIVE! PERISH!", timer: 6000 };
+      }
+    }
+
     // Update Boss Spell Timers & Casting
     if (this.bossEntity && !this.state.isGameOver) {
       if (this.bossCastState) {
         this.bossCastState.progress += deltaTime;
         if (this.bossCastState.progress >= this.bossCastState.duration) {
           const abilityId = this.bossCastState.abilityId;
+          if (this.bossCastState.interruptWordId) {
+            this.words = this.words.filter(w => w.id !== this.bossCastState!.interruptWordId);
+          }
           this.bossCastState = null;
           this.executeBossAbility(abilityId);
         }
-      } else if (!this.isCoopRaid) {
-        // In Solo Boss mode, engine manages boss AI casts
+      } else if (this.bossStunTimer <= 0 && (!this.isCoopRaid || this.isRaidHost)) {
+        // In Solo Boss mode or as Raid Host, manage boss AI casts
+        const currentPhase = this.bossPhase;
         for (const ability of this.bossEntity.abilities) {
+          if (ability.phase && ability.phase > currentPhase) continue;
+
           this.bossAbilityTimers[ability.id] -= deltaTime;
           if (this.bossAbilityTimers[ability.id] <= 0 && !this.bossCastState) {
-            this.bossAbilityTimers[ability.id] = ability.cooldown;
-            this.bossCastState = {
-              abilityId: ability.id,
-              abilityName: ability.name,
-              warningText: ability.warningText,
-              progress: 0,
-              duration: ability.castTime,
-              icon: ability.icon
-            };
-            this.sound.playBossCastWarning();
-            this.shakeIntensity = 8;
+            const cd = this.bossPhase === 2 ? ability.cooldown * 0.75 : ability.cooldown;
+            this.bossAbilityTimers[ability.id] = cd;
+            this.triggerBossCast(ability.id);
             this.onBossSpellCast?.(ability.id);
             break;
           }
@@ -423,9 +609,15 @@ export class GameEngine {
     progressScore += Math.min(0.5, this.state.combo * 0.01);
     progressScore += Math.min(0.5, this.state.score * 0.0005);
     
-    // Scale speed and spawn intervals based on progressScore & heatwave
+    // Scale speed and spawn intervals based on progressScore, heatwave, stagger, and temporal rift
     const heatwaveBonus = this.heatwaveTimer > 0 ? 1.35 : 1.0;
-    const difficultyMultiplier = (1 + progressScore) * heatwaveBonus; 
+    const staggerSlow = this.bossStunTimer > 0 ? 0.75 : 1.0;
+    let temporalModifier = 1.0;
+    if (this.temporalRiftTimer > 0) {
+      temporalModifier = 0.5 + 1.2 * Math.abs(Math.sin(this.temporalRiftTimer * 0.003));
+    }
+    const berserkBoost = this.isBossBerserk ? 1.4 : 1.0;
+    const difficultyMultiplier = (1 + progressScore) * heatwaveBonus * staggerSlow * temporalModifier * berserkBoost; 
     
     if (Math.floor(progressScore) > this.lastProgressScoreLevel && !this.bossEntity) {
       this.lastProgressScoreLevel = Math.floor(progressScore);
@@ -588,6 +780,109 @@ export class GameEngine {
     } else if (abilityId === 'supernova_enrage') {
       this.loseLife();
       this.loseLife();
+    } else if (abilityId === 'molten_eruption') {
+      // Ignis Phase 2: Launches 4 blazing eruption words
+      const rect = this.canvas.getBoundingClientRect();
+      for (let i = 0; i < 4; i++) {
+        const text = Dictionary.getWord(this.random, Difficulty.HARD, undefined, 2.0, this.activeWordPack?.words);
+        this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
+        const textWidth = this.ctx.measureText(text).width;
+        const minX = textWidth / 2 + 20;
+        const maxX = rect.width - (textWidth / 2) - 20;
+        this.words.push({
+          id: `lava_${this.random().toString(36).substring(2, 9)}`,
+          text,
+          typed: '',
+          x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
+          y: -40 - (i * 40),
+          speed: this.baseSpeed * 2.2,
+          isJunk: true,
+          isGolden: false,
+          hasTypo: false,
+          color: '#f97316'
+        });
+      }
+      this.triggerScreenFlash('rgba(249, 115, 22, 0.35)', 400);
+    } else if (abilityId === 'malware_cascade') {
+      // Glitch Phase 2: Injects corrupt hex instructions
+      const hexes = ['0xDEADBEEF', '0xC001CAFE', '0xBAADF00D', '0xFEEDFACE'];
+      const rect = this.canvas.getBoundingClientRect();
+      hexes.forEach((hex, idx) => {
+        this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
+        const textWidth = this.ctx.measureText(hex).width;
+        const minX = textWidth / 2 + 20;
+        const maxX = rect.width - (textWidth / 2) - 20;
+        this.words.push({
+          id: `hex_${this.random().toString(36).substring(2, 9)}`,
+          text: hex,
+          typed: '',
+          x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
+          y: -40 - (idx * 45),
+          speed: this.baseSpeed * 1.6,
+          isJunk: false,
+          isGolden: false,
+          hasTypo: false,
+          color: '#ec4899'
+        });
+      });
+      this.triggerScreenFlash('rgba(236, 72, 153, 0.35)', 400);
+    } else if (abilityId === 'temporal_rift') {
+      // Chronos Phase 2: Warps spacetime
+      this.temporalRiftTimer = 7000;
+      this.triggerScreenFlash('rgba(168, 85, 247, 0.4)', 500);
+    } else if (abilityId === 'quantum_mirror') {
+      // Aetheria: Inverts words
+      const rect = this.canvas.getBoundingClientRect();
+      for (let i = 0; i < 3; i++) {
+        const raw = Dictionary.getWord(this.random, Difficulty.EASY, undefined, 1.2, this.activeWordPack?.words);
+        const reversed = raw.split('').reverse().join('');
+        this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
+        const textWidth = this.ctx.measureText(reversed).width;
+        const minX = textWidth / 2 + 20;
+        const maxX = rect.width - (textWidth / 2) - 20;
+        this.words.push({
+          id: `mirror_${this.random().toString(36).substring(2, 9)}`,
+          text: reversed,
+          typed: '',
+          x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
+          y: -40 - (i * 50),
+          speed: this.baseSpeed * 1.2,
+          isJunk: false,
+          isGolden: false,
+          hasTypo: false,
+          color: '#06b6d4'
+        });
+      }
+      this.triggerScreenFlash('rgba(6, 182, 212, 0.3)', 400);
+    } else if (abilityId === 'memory_leak') {
+      // Aetheria: Memory leak blocks
+      const rect = this.canvas.getBoundingClientRect();
+      const blocks = ['0x00FF', 'PURGE_HEAP', 'NULL_PTR', 'LEAK_FREE', 'GC_COLLECT'];
+      blocks.forEach((blk, idx) => {
+        this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
+        const textWidth = this.ctx.measureText(blk).width;
+        const minX = textWidth / 2 + 20;
+        const maxX = rect.width - (textWidth / 2) - 20;
+        this.words.push({
+          id: `mem_${this.random().toString(36).substring(2, 9)}`,
+          text: blk,
+          typed: '',
+          x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
+          y: -30 - (idx * 40),
+          speed: this.baseSpeed * 1.7,
+          isJunk: true,
+          isGolden: false,
+          hasTypo: false,
+          color: '#10b981'
+        });
+      });
+      this.triggerScreenFlash('rgba(16, 185, 129, 0.35)', 400);
+    } else if (abilityId === 'singularity_collapse') {
+      // Aetheria Phase 2 Ultimate: Gravitational implosion!
+      this.loseLife();
+      this.loseLife();
+      this.shakeIntensity = 30;
+      this.triggerScreenFlash('rgba(16, 185, 129, 0.7)', 800);
     }
   }
 
@@ -748,7 +1043,20 @@ export class GameEngine {
 
     for (const word of this.words) {
       const isTargeted = this.targetedWordId === word.id;
+      const isInterrupt = word.id.startsWith('interrupt_');
+      const isRevive = word.id.startsWith('revive_');
       
+      // Floating badge above special glyphs
+      if (isInterrupt || isRevive) {
+        this.ctx.save();
+        this.ctx.font = `bold 11px "${this.fontFamily}", sans-serif`;
+        this.ctx.fillStyle = isInterrupt ? '#38bdf8' : '#34d399';
+        this.ctx.shadowColor = isInterrupt ? '#0284c7' : '#059669';
+        this.ctx.shadowBlur = 8;
+        this.ctx.fillText(isInterrupt ? '⚡ DISRUPT GLYPH' : '💚 REVIVE BEACON', word.x, word.y - 20);
+        this.ctx.restore();
+      }
+
       // Draw typed portion
       const typedText = word.typed;
       const remainingText = word.text.substring(word.typed.length);
@@ -759,8 +1067,8 @@ export class GameEngine {
       
       const startX = word.x - totalWidth / 2;
 
-      // Targeting reticle around active word
-      if (isTargeted) {
+      // Targeting reticle around active word or special glyphs
+      if (isTargeted || isInterrupt || isRevive) {
         const padX = 14;
         const padY = 8;
         const boxX = startX - padX;
@@ -770,10 +1078,11 @@ export class GameEngine {
         const cLen = 7;
 
         this.ctx.save();
-        this.ctx.strokeStyle = this.theme.wordTyped;
-        this.ctx.lineWidth = 2;
-        this.ctx.shadowColor = this.theme.wordTyped;
-        this.ctx.shadowBlur = 8;
+        const reticleColor = isTargeted ? this.theme.wordTyped : (isInterrupt ? '#06b6d4' : '#10b981');
+        this.ctx.strokeStyle = reticleColor;
+        this.ctx.lineWidth = isTargeted ? 2 : 1.5;
+        this.ctx.shadowColor = reticleColor;
+        this.ctx.shadowBlur = isTargeted ? 8 : 12;
 
         // 4 Corner Brackets
         this.ctx.beginPath();
@@ -796,7 +1105,7 @@ export class GameEngine {
         this.ctx.stroke();
 
         // Pulsing active character cursor
-        if (remainingText.length > 0) {
+        if (isTargeted && remainingText.length > 0) {
           const nextChar = remainingText[0];
           const nextCharWidth = this.ctx.measureText(nextChar).width;
           const cursorX = startX + typedWidth;
@@ -813,8 +1122,18 @@ export class GameEngine {
       this.ctx.fillText(typedText, startX + typedWidth / 2, word.y);
       
       // Remaining characters
-      this.ctx.fillStyle = isTargeted ? this.theme.wordRemaining : (word.isJunk ? this.theme.wordJunk : (word.isGolden ? '#fbbf24' : '#9ca3af'));
-      if (word.isGolden && !word.hasTypo) {
+      let remColor = isTargeted ? this.theme.wordRemaining : (word.isJunk ? this.theme.wordJunk : (word.isGolden ? '#fbbf24' : '#9ca3af'));
+      if (isInterrupt) remColor = '#38bdf8';
+      else if (isRevive) remColor = '#34d399';
+
+      this.ctx.fillStyle = remColor;
+      if (isInterrupt) {
+        this.ctx.shadowBlur = 14;
+        this.ctx.shadowColor = '#06b6d4';
+      } else if (isRevive) {
+        this.ctx.shadowBlur = 14;
+        this.ctx.shadowColor = '#10b981';
+      } else if (word.isGolden && !word.hasTypo) {
         this.ctx.shadowBlur = 12;
         this.ctx.shadowColor = '#fbbf24';
       } else if (word.isJunk) {
@@ -922,18 +1241,28 @@ export class GameEngine {
     const barX = centerX - hpBarWidth / 2;
     const barY = 28;
 
+    // Team Overdrive Banner
+    if (this.isTeamOverdrive) {
+      this.ctx.font = `bold 12px "${this.fontFamily}", sans-serif`;
+      this.ctx.fillStyle = '#fbbf24';
+      this.ctx.shadowColor = '#f59e0b';
+      this.ctx.shadowBlur = 8;
+      this.ctx.fillText('⚡ TEAM OVERDRIVE (1.5x BOSS DAMAGE) ⚡', centerX, barY - 14);
+      this.ctx.shadowBlur = 0;
+    }
+
     // Boss Name & Title
     this.ctx.font = `bold 18px "${this.fontFamily}", sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.fillStyle = this.bossEntity.accentColor;
     this.ctx.shadowColor = this.bossEntity.themeColor;
     this.ctx.shadowBlur = 8;
-    this.ctx.fillText(`${this.bossEntity.icon} ${this.bossEntity.name.toUpperCase()} [${this.bossDifficulty.toUpperCase()}]`, centerX, 18);
+    this.ctx.fillText(`${this.bossEntity.icon} ${this.bossEntity.name.toUpperCase()} [${this.bossDifficulty.toUpperCase()}]`, centerX, this.isTeamOverdrive ? barY - 2 : 18);
     this.ctx.shadowBlur = 0;
 
     // Boss HP Bar Background
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    this.ctx.strokeStyle = this.bossPhase === 2 ? '#ef4444' : 'rgba(255, 255, 255, 0.25)';
+    this.ctx.strokeStyle = this.bossStunTimer > 0 ? '#06b6d4' : (this.bossPhase === 2 ? '#ef4444' : 'rgba(255, 255, 255, 0.25)');
     this.ctx.lineWidth = 2;
     this.ctx.beginPath();
     this.ctx.roundRect(barX, barY, hpBarWidth, hpBarHeight, 10);
@@ -962,45 +1291,75 @@ export class GameEngine {
       this.ctx.fill();
     }
 
+    // Stagger / Stun Overlay
+    if (this.bossStunTimer > 0) {
+      const pulse = 0.5 + 0.3 * Math.sin(performance.now() * 0.012);
+      this.ctx.fillStyle = `rgba(6, 182, 212, ${pulse})`;
+      this.ctx.beginPath();
+      this.ctx.roundRect(barX, barY, hpBarWidth, hpBarHeight, 10);
+      this.ctx.fill();
+    }
+
     // HP Text
     this.ctx.font = `bold 12px "${this.fontFamily}", sans-serif`;
     this.ctx.fillStyle = '#ffffff';
     this.ctx.textAlign = 'center';
     this.ctx.shadowColor = '#000000';
     this.ctx.shadowBlur = 4;
-    const hpText = this.bossShieldHp > 0
+    let hpText = this.bossShieldHp > 0
       ? `🛡️ BARRIER: ${this.bossShieldHp} HP | BOSS: ${this.bossHp.toLocaleString()} / ${this.bossMaxHp.toLocaleString()}`
       : `${this.bossHp.toLocaleString()} / ${this.bossMaxHp.toLocaleString()} HP (${Math.round(hpRatio * 100)}%) ${this.bossPhase === 2 ? '🔥 RAGE OVERDRIVE' : ''}`;
+    
+    if (this.bossStunTimer > 0) {
+      hpText = `⚡ STAGGERED! (+50% DMG) [${(this.bossStunTimer / 1000).toFixed(1)}s] ⚡`;
+    }
     this.ctx.fillText(hpText, centerX, barY + 14);
     this.ctx.shadowBlur = 0;
 
     // Active Cast Bar
     if (this.bossCastState) {
-      const castBarWidth = hpBarWidth * 0.8;
-      const castBarHeight = 12;
+      const castBarWidth = hpBarWidth * 0.85;
+      const castBarHeight = 14;
       const castBarX = centerX - castBarWidth / 2;
       const castBarY = barY + hpBarHeight + 8;
       const castRatio = Math.min(1, this.bossCastState.progress / this.bossCastState.duration);
 
-      // Warning text
-      this.ctx.font = `bold 13px "${this.fontFamily}", sans-serif`;
-      this.ctx.fillStyle = '#fbbf24';
-      this.ctx.fillText(`${this.bossCastState.icon} ${this.bossCastState.warningText}`, centerX, castBarY - 3);
+      // Warning text & Interrupt progress
+      this.ctx.font = `bold 12px "${this.fontFamily}", sans-serif`;
+      this.ctx.fillStyle = this.bossCastState.interruptible ? '#38bdf8' : '#fbbf24';
+      this.ctx.shadowColor = '#000';
+      this.ctx.shadowBlur = 4;
+      const castTitle = this.bossCastState.interruptible
+        ? `${this.bossCastState.icon} ${this.bossCastState.warningText} [BURST: ${this.bossCastState.damageDuringCast}/${this.bossCastState.interruptThreshold} DMG]`
+        : `${this.bossCastState.icon} ${this.bossCastState.warningText}`;
+      this.ctx.fillText(castTitle, centerX, castBarY - 3);
+      this.ctx.shadowBlur = 0;
 
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
       this.ctx.beginPath();
       this.ctx.roundRect(castBarX, castBarY, castBarWidth, castBarHeight, 6);
       this.ctx.fill();
 
-      this.ctx.fillStyle = '#ef4444';
+      // Bar fill color: amber/cyan if interruptible, red if not
+      this.ctx.fillStyle = this.bossCastState.interruptible ? '#f59e0b' : '#ef4444';
       this.ctx.beginPath();
       this.ctx.roundRect(castBarX, castBarY, castBarWidth * castRatio, castBarHeight, 6);
       this.ctx.fill();
     }
 
+    // Berserk Warning
+    if (this.isBossBerserk) {
+      this.ctx.font = `bold 12px "${this.fontFamily}", sans-serif`;
+      this.ctx.fillStyle = '#ef4444';
+      this.ctx.shadowColor = '#dc2626';
+      this.ctx.shadowBlur = 8;
+      this.ctx.fillText('🚨 BERSERK ENRAGE ACTIVE - BURST OR WIPE! 🚨', centerX, barY + hpBarHeight + 28);
+      this.ctx.shadowBlur = 0;
+    }
+
     // Boss Dialogue Speech Bubble
     if (this.bossDialogue) {
-      const bubbleY = this.bossCastState ? barY + hpBarHeight + 42 : barY + hpBarHeight + 22;
+      const bubbleY = this.bossCastState ? barY + hpBarHeight + 44 : barY + hpBarHeight + 24;
       this.ctx.font = `italic 14px "${this.fontFamily}", sans-serif`;
       this.ctx.fillStyle = '#f8fafc';
       this.ctx.shadowColor = '#000000';
@@ -1166,11 +1525,41 @@ export class GameEngine {
         this.triggerScreenFlash('rgba(251, 191, 36, 0.28)', 250);
       }
 
+      // Check Revive Beacon completion
+      if (word.id.startsWith('revive_')) {
+        const targetPlayerId = word.id.replace('revive_', '');
+        this.sound.playBossRevive();
+        this.triggerScreenFlash('rgba(16, 185, 129, 0.45)', 500);
+        this.spawnShockwave(word.x, word.y, '#10b981', 85);
+        this.spawnPopup(word.x, word.y - 30, 'ALLY RESCUED! 💚', '#10b981', true);
+        this.onPlayerRevivedByMe?.(targetPlayerId);
+      }
+
+      // Check Interrupt Glyph word completion
+      if (this.bossCastState && this.bossCastState.interruptWordId === word.id) {
+        this.interruptBossCast(true);
+      }
+
       // Boss Damage Processing
       if (this.bossEntity && normalScore && !this.state.isGameOver) {
-        const { damage, isCrit } = calculateBossDamage(word.text.length, this.state.combo, word.isGolden);
+        let totalMultiplier = this.synergyMultiplier;
+        if (this.bossStunTimer > 0) {
+          totalMultiplier *= 1.5; // +50% staggered vulnerability!
+        }
+        if (this.isBossBerserk) {
+          totalMultiplier *= 0.75; // Boss enrage defense
+        }
+        const { damage, isCrit } = calculateBossDamage(word.text.length, this.state.combo, word.isGolden, totalMultiplier);
         this.totalBossDamageDealt += damage;
         this.sound.playBossHit(isCrit);
+
+        // Check if damage disrupts an active cast
+        if (this.bossCastState && this.bossCastState.interruptible) {
+          this.bossCastState.damageDuringCast += damage;
+          if (this.bossCastState.damageDuringCast >= this.bossCastState.interruptThreshold) {
+            this.interruptBossCast(true);
+          }
+        }
 
         if (this.bossShieldHp > 0) {
           this.bossShieldHp = Math.max(0, this.bossShieldHp - damage);
@@ -1181,7 +1570,13 @@ export class GameEngine {
           }
         } else {
           this.bossHp = Math.max(0, this.bossHp - damage);
-          this.addFloatingCombatNumber(word.x, word.y - 15, isCrit ? `-${damage} CRIT!` : `-${damage}`, isCrit, isCrit ? '#f59e0b' : '#f8fafc');
+          let label = isCrit ? `-${damage} CRIT!` : `-${damage}`;
+          if (this.bossStunTimer > 0) {
+            label += ' (+50%)';
+          } else if (this.isTeamOverdrive) {
+            label += ' OVERDRIVE';
+          }
+          this.addFloatingCombatNumber(word.x, word.y - 15, label, isCrit, isCrit ? '#f59e0b' : (this.bossStunTimer > 0 ? '#38bdf8' : '#f8fafc'));
         }
 
         this.onBossDamageDealt?.(damage, isCrit, this.bossHp);

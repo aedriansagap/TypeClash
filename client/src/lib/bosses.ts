@@ -6,6 +6,9 @@ export interface BossAbility {
   castTime: number; // ms
   cooldown: number; // ms
   warningText: string;
+  interruptible?: boolean;
+  interruptThreshold?: number; // Burst damage required to disrupt cast
+  phase?: 1 | 2; // Phase in which ability can trigger (default 1)
 }
 
 export interface BossThemeMusic {
@@ -60,18 +63,32 @@ export const BOSSES: Record<string, BossConfig> = {
         name: 'Meteor Firestorm',
         description: 'Summons blazing high-speed meteors that plunge rapidly down the canvas.',
         icon: '☄️',
-        castTime: 3000,
+        castTime: 3200,
         cooldown: 18000,
-        warningText: '⚠️ IGNIS IS SUMMONING METEOR FIRESTORM!'
+        warningText: '⚠️ IGNIS IS SUMMONING METEOR FIRESTORM!',
+        interruptible: true,
+        interruptThreshold: 450
       },
       {
         id: 'heatwave',
         name: 'Infernal Heatwave',
         description: 'Superheats the battlefield, increasing all falling word speeds by 30%.',
         icon: '💨',
-        castTime: 2000,
+        castTime: 2200,
         cooldown: 25000,
         warningText: '⚠️ HEATWAVE SURGE INCOMING!'
+      },
+      {
+        id: 'molten_eruption',
+        name: 'Molten Eruption',
+        description: 'Phase 2: Fractures the floor, launching an erratic spray of supercharged lava words.',
+        icon: '🌋',
+        castTime: 3800,
+        cooldown: 22000,
+        warningText: '🌋 IGNIS IS UNLEASHING MOLTEN ERUPTION!',
+        interruptible: true,
+        interruptThreshold: 600,
+        phase: 2
       }
     ],
     titleReward: {
@@ -106,7 +123,9 @@ export const BOSSES: Record<string, BossConfig> = {
         icon: '👾',
         castTime: 3500,
         cooldown: 16000,
-        warningText: '⚠️ GLITCH IS BROADCASTING SYSTEM SCRAMBLE!'
+        warningText: '⚠️ GLITCH IS BROADCASTING SYSTEM SCRAMBLE!',
+        interruptible: true,
+        interruptThreshold: 500
       },
       {
         id: 'data_barrier',
@@ -116,6 +135,18 @@ export const BOSSES: Record<string, BossConfig> = {
         castTime: 2500,
         cooldown: 30000,
         warningText: '⚠️ DATA BARRIER ACTIVE - TYPE OVERRIDE CODES!'
+      },
+      {
+        id: 'malware_cascade',
+        name: 'Malware Cascade',
+        description: 'Phase 2: Injects corrupt hex instructions that rapidly descend and scramble keypresses.',
+        icon: '☣️',
+        castTime: 3500,
+        cooldown: 20000,
+        warningText: '☣️ MALWARE CASCADE INFILTRATING BUFFER!',
+        interruptible: true,
+        interruptThreshold: 650,
+        phase: 2
       }
     ],
     titleReward: {
@@ -159,7 +190,21 @@ export const BOSSES: Record<string, BossConfig> = {
         icon: '💥',
         castTime: 8000,
         cooldown: 40000,
-        warningText: '🚨 CRITICAL: SUPERNOVA COLLAPSE! BURST DPS TO INTERRUPT!'
+        warningText: '🚨 CRITICAL: SUPERNOVA COLLAPSE! BURST DPS TO INTERRUPT!',
+        interruptible: true,
+        interruptThreshold: 1200
+      },
+      {
+        id: 'temporal_rift',
+        name: 'Temporal Rift',
+        description: 'Phase 2: Warps spacetime, alternating extreme acceleration and deceleration.',
+        icon: '⏳',
+        castTime: 3200,
+        cooldown: 22000,
+        warningText: '⏳ CHRONOS IS OPENING A TEMPORAL RIFT!',
+        interruptible: true,
+        interruptThreshold: 700,
+        phase: 2
       }
     ],
     titleReward: {
@@ -176,14 +221,79 @@ export const BOSSES: Record<string, BossConfig> = {
       bpm: 120,
       description: 'Subterranean sub-bass, harmonic minor choir progression, and cosmic impact polyrhythms.'
     }
+  },
+  aetheria: {
+    id: 'aetheria',
+    name: 'Aetheria, Neural Overmind',
+    subtitle: 'Architect of the Digital Singularity',
+    icon: '🧠',
+    themeColor: '#10b981',
+    accentColor: '#06b6d4',
+    baseHp: 8500,
+    wordSpeedMultiplier: 1.35,
+    abilities: [
+      {
+        id: 'quantum_mirror',
+        name: 'Quantum Inversion',
+        description: 'Inverts cognitive perception, flipping word trajectories and mirror reading patterns.',
+        icon: '🪞',
+        castTime: 3200,
+        cooldown: 18000,
+        warningText: '⚠️ QUANTUM INVERSION ACTIVE - PHANTOM MIRRORS!',
+        interruptible: true,
+        interruptThreshold: 600
+      },
+      {
+        id: 'memory_leak',
+        name: 'Memory Leak Overflow',
+        description: 'Cascades corrupted memory blocks down the buffer at extreme velocities.',
+        icon: '💾',
+        castTime: 3600,
+        cooldown: 24000,
+        warningText: '⚠️ MEMORY LEAK OVERFLOW - PURGE BUFFERS!',
+        interruptible: true,
+        interruptThreshold: 750
+      },
+      {
+        id: 'singularity_collapse',
+        name: 'Singularity Collapse',
+        description: 'Phase 2: Collapses neural nodes into a black hole. Disrupt immediately or suffer lethal feedback!',
+        icon: '🌀',
+        castTime: 7500,
+        cooldown: 36000,
+        warningText: '🚨 CRITICAL: SINGULARITY COLLAPSE! BURST DPS TO DISRUPT!',
+        interruptible: true,
+        interruptThreshold: 1400,
+        phase: 2
+      }
+    ],
+    titleReward: {
+      id: 'singularity_transcended',
+      name: '🧠 Singularity Transcended',
+      description: 'Transcended Aetheria, The Neural Overmind'
+    },
+    flavorQuote: '"Your carbon synapses are obsolete. Calculating termination vectors..."',
+    phase2Quote: '"UNLEASHING NEURAL CASCADE! SURRENDER TO THE SINGULARITY!"',
+    defeatQuote: '"Memory core fragmented... how did organic fingers exceed light speed...?"',
+    themeMusic: {
+      trackTitle: 'Neural Singularity',
+      genre: 'Cybernetic Trance / Matrix Synth',
+      bpm: 145,
+      description: 'Acidic square bassline, syncopated digital percussion, and blazing emerald synth arpeggios.'
+    }
   }
 };
 
-
-export function calculateBossDamage(wordLength: number, combo: number, isGolden: boolean = false): { damage: number; isCrit: boolean } {
+export function calculateBossDamage(
+  wordLength: number, 
+  combo: number, 
+  isGolden: boolean = false, 
+  multiplier: number = 1.0
+): { damage: number; isCrit: boolean } {
   const baseDmg = wordLength * (16 + Math.min(combo, 50) * 3);
+  const scaled = Math.round(baseDmg * multiplier);
   if (isGolden) {
-    return { damage: Math.round(baseDmg * 2.8), isCrit: true };
+    return { damage: Math.round(scaled * 2.8), isCrit: true };
   }
-  return { damage: Math.round(baseDmg), isCrit: false };
+  return { damage: scaled, isCrit: false };
 }

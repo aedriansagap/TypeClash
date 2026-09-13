@@ -613,6 +613,7 @@ export class SoundEngine {
     if (bossId === 'ignis') baseBpm = phase === 1 ? 140 : 168;
     else if (bossId === 'glitch') baseBpm = phase === 1 ? 135 : 162;
     else if (bossId === 'chronos') baseBpm = phase === 1 ? 120 : 144;
+    else if (bossId === 'aetheria') baseBpm = phase === 1 ? 145 : 174;
 
     const stepMs = Math.round((60000 / baseBpm) / 4); // 16th note tick
 
@@ -636,6 +637,8 @@ export class SoundEngine {
       this.stepGlitchTheme(step, phase, stepDuration);
     } else if (bossId === 'chronos') {
       this.stepChronosTheme(step, phase, stepDuration);
+    } else if (bossId === 'aetheria') {
+      this.stepAetheriaTheme(step, phase, stepDuration);
     }
   }
 
@@ -751,6 +754,50 @@ export class SoundEngine {
     }
   }
 
+  // --- Theme 4: Aetheria "Neural Singularity" (Cybernetic Trance / Matrix Synth) --- //
+  private stepAetheriaTheme(step: number, phase: number, stepDuration: number) {
+    // 16-step Cyber Trance Bass (D minor / Aeolian)
+    const bassScale = [
+      73.42, 73.42, 146.83, 73.42,  // D2, D2, D3, D2
+      87.31, 87.31, 174.61, 87.31,  // F2, F2, F3, F2
+      98.00, 98.00, 196.00, 98.00,  // G2, G2, G3, G2
+      110.00, 110.00, 130.81, 110.00 // A2, A2, C3, A2
+    ];
+
+    // Blazing emerald matrix lead arpeggios
+    const arpeggioScale = [
+      293.66, 349.23, 440.00, 587.33,
+      349.23, 440.00, 587.33, 698.46,
+      392.00, 440.00, 587.33, 783.99,
+      440.00, 523.25, 659.25, 880.00
+    ];
+
+    // 1. Acidic Square Bassline
+    const bassFreq = bassScale[step];
+    const bassVol = 0.07 * this.bgmVolume;
+    this.playTone(bassFreq, 'square', stepDuration * 0.75, bassVol, bassFreq * (step % 2 === 0 ? 1.02 : 0.98), 0, true);
+
+    // 2. High Matrix Lead Arpeggio
+    const pan = ((step % 4) - 1.5) / 2; // Stereo sweep -0.75 to +0.75
+    const leadFreq = arpeggioScale[step] * (phase === 2 ? 1.5 : 1);
+    const leadVol = (phase === 2 ? 0.06 : 0.045) * this.bgmVolume;
+    this.playTone(leadFreq, 'sine', stepDuration * 0.8, leadVol, undefined, pan, true);
+    if (phase === 2 && step % 2 === 0) {
+      this.playTone(leadFreq * 2, 'triangle', stepDuration * 0.5, leadVol * 0.6, undefined, -pan, true);
+    }
+
+    // 3. Cybernetic Percussion (4-on-the-floor kick, snappy electronic snare, off-beat hi-hats)
+    if (step % 4 === 0) {
+      this.playDrumHit('kick', phase === 2 ? 0.24 : 0.20);
+    }
+    if (step === 4 || step === 12) {
+      this.playDrumHit('snare', phase === 2 ? 0.18 : 0.14);
+    }
+    if (step % 2 === 1) {
+      this.playDrumHit('hihat', 0.10);
+    }
+  }
+
   // --- Boss Battle Sound Effects --- //
 
   public playBossRoar() {
@@ -780,6 +827,48 @@ export class SoundEngine {
   public playShieldBroken() {
     this.playTone(880, 'sine', 0.3, 0.3, 220);
     this.playTone(1200, 'triangle', 0.4, 0.35, 300);
+  }
+
+  public playBossInterrupted() {
+    // Metallic disrupt clang + electrical short
+    this.playTone(880, 'triangle', 0.22, 0.35, 220, 0, true);
+    this.playTone(1320, 'square', 0.16, 0.25, 330, -0.3, true);
+    setTimeout(() => {
+      this.playNoiseClick('white', 0.18, 0.3, 1200, 'bandpass', 0);
+    }, 40);
+  }
+
+  public playBossStaggered() {
+    // Low pulsing electronic stun hum
+    this.playTone(110, 'sine', 0.6, 0.3, 80, 0, true);
+    this.playTone(220, 'sawtooth', 0.4, 0.15, 140, 0, true);
+  }
+
+  public playBossRevive() {
+    // Ascending harmonic restoration chime
+    const freqs = [392.00, 523.25, 659.25, 783.99, 1046.50]; // G4, C5, E5, G5, C6
+    freqs.forEach((freq, idx) => {
+      setTimeout(() => {
+        this.playTone(freq, 'triangle', 0.4, 0.25, undefined, 0, true);
+        this.playTone(freq * 1.5, 'sine', 0.25, 0.15, undefined, 0, true);
+      }, idx * 75);
+    });
+  }
+
+  public playTeamSynergy() {
+    // Power overdrive surge chord
+    const freqs = [220, 277.18, 329.63, 440]; // A major
+    freqs.forEach(f => {
+      this.playTone(f, 'sawtooth', 0.5, 0.2, f * 1.2, 0, true);
+    });
+  }
+
+  public playEnrageWarning() {
+    // Ominous dual-tone klaxon alarm
+    this.playTone(293.66, 'sawtooth', 0.25, 0.35, 261.63, -0.4, true);
+    setTimeout(() => {
+      this.playTone(440.00, 'sawtooth', 0.35, 0.4, 392.00, 0.4, true);
+    }, 180);
   }
 
   public playBossDefeated() {
