@@ -1,8 +1,15 @@
+export type SoundProfile = 'mechanical_clicky' | 'thock' | 'arcade' | 'scifi';
+
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   public isMuted: boolean = false;
   public sfxVolume: number = 0.8;
   public bgmVolume: number = 0.6;
+  public soundProfile: SoundProfile = 'mechanical_clicky';
+  
+  // Tension / Heartbeat
+  private heartbeatInterval: any = null;
+  private isHeartbeatPlaying: boolean = false;
   
   // BGM
   private bgmOscs: OscillatorNode[] = [];
@@ -122,71 +129,232 @@ export class SoundEngine {
     osc.stop(now + duration);
   }
 
+  public setSoundProfile(profile: SoundProfile) {
+    this.soundProfile = profile;
+  }
+
   public playKeystroke(correct: boolean, combo: number) {
-    if (correct) {
-      const baseFreq = 400;
-      const comboMod = Math.min(500, combo * 10);
-      const pan = (Math.random() - 0.5) * 0.5;
-      this.playTone(baseFreq + comboMod, 'sine', 0.1, 0.2, undefined, pan);
+    if (!this.ctx || this.isMuted) return;
+
+    if (!correct) {
+      // Punchy crunchy typo buzz with fast cutoff
+      this.playTone(130, 'sawtooth', 0.15, 0.35, 75, 0, false);
+      this.playNoiseClick('pink', 0.08, 0.25, 500, 'lowpass');
+      return;
+    }
+
+    const pan = (Math.random() - 0.5) * 0.4;
+    const finalSfxVol = 0.25 * this.sfxVolume;
+
+    switch (this.soundProfile) {
+      case 'mechanical_clicky': {
+        // Crisp tactile clicky switch: High-pass noise tick + sharp dual micro-snap
+        this.playNoiseClick('white', 0.012, finalSfxVol * 1.6, 4500, 'bandpass', pan);
+        this.playTone(2800, 'sine', 0.015, finalSfxVol * 1.2, 1200, pan);
+        setTimeout(() => {
+          this.playTone(1400, 'triangle', 0.01, finalSfxVol * 0.7, 900, pan);
+        }, 6);
+        break;
+      }
+      case 'thock': {
+        // Deep, creamy, bottom-out mechanical switch (thocky linear/tactile)
+        this.playTone(180, 'sine', 0.045, finalSfxVol * 2.2, 65, pan);
+        this.playNoiseClick('pink', 0.022, finalSfxVol * 1.4, 850, 'lowpass', pan);
+        break;
+      }
+      case 'scifi': {
+        // Laser sci-fi micro blaster blip
+        const basePitch = 1600 + Math.min(800, combo * 15);
+        this.playTone(basePitch, 'square', 0.035, finalSfxVol * 0.9, basePitch * 0.25, pan);
+        break;
+      }
+      case 'arcade':
+      default: {
+        // Melodic retro synth with combo frequency scaling
+        const baseFreq = 380;
+        const comboMod = Math.min(550, combo * 12);
+        this.playTone(baseFreq + comboMod, 'sine', 0.09, finalSfxVol * 1.1, undefined, pan);
+        break;
+      }
+    }
+  }
+
+  private playNoiseClick(
+    type: 'white' | 'pink', 
+    duration: number, 
+    volume: number, 
+    filterFreq: number, 
+    filterType: BiquadFilterType,
+    pan: number = 0
+  ) {
+    if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const bufferSize = Math.max(128, Math.floor(this.ctx.sampleRate * duration));
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.value = filterFreq;
+
+    const gain = this.ctx.createGain();
+    const finalVol = volume * this.sfxVolume;
+    gain.gain.setValueAtTime(finalVol, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+    noise.connect(filter);
+    filter.connect(gain);
+
+    if (this.ctx.createStereoPanner && pan !== 0) {
+      const panner = this.ctx.createStereoPanner();
+      panner.pan.value = pan;
+      gain.connect(panner);
+      panner.connect(this.ctx.destination);
     } else {
-      this.playTone(150, 'sawtooth', 0.2, 0.3, 100, 0, true);
+      gain.connect(this.ctx.destination);
+    }
+
+    noise.start(now);
+  }
+
+  public startHeartbeat() {
+    if (this.isHeartbeatPlaying || !this.ctx || this.isMuted) return;
+    this.isHeartbeatPlaying = true;
+
+    const beat = () => {
+      if (!this.isHeartbeatPlaying || !this.ctx || this.isMuted) return;
+      // Lub (First lower pulse)
+      this.playTone(65, 'sine', 0.12, 0.45, 40, 0);
+      // Dub (Second higher pulse 130ms later)
+      setTimeout(() => {
+        if (!this.isHeartbeatPlaying || !this.ctx || this.isMuted) return;
+        this.playTone(52, 'sine', 0.16, 0.55, 32, 0);
+      }, 130);
+    };
+
+    beat();
+    this.heartbeatInterval = setInterval(beat, 820);
+  }
+
+  public stopHeartbeat() {
+    this.isHeartbeatPlaying = false;
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
   }
 
   public playWordComplete() {
-    this.playTone(800, 'sine', 0.15, 0.2);
-    setTimeout(() => this.playTone(1200, 'sine', 0.3, 0.2, undefined, 0, true), 100);
+    this.playTone(880, 'sine', 0.12, 0.22);
+    setTimeout(() => this.playTone(1320, 'sine', 0.25, 0.22, undefined, 0, true), 75);
   }
 
   public playGarbageSent() {
     const pan = (Math.random() - 0.5) * 1.5;
-    this.playTone(1200, 'square', 0.4, 0.2, 200, pan, true);
+    this.playTone(1200, 'square', 0.35, 0.22, 200, pan, true);
   }
 
   public playLifeLost() {
-    this.playTone(300, 'sawtooth', 0.8, 0.4, 50, 0, true);
+    this.playTone(320, 'sawtooth', 0.6, 0.45, 45, 0, true);
+    this.playNoiseClick('pink', 0.25, 0.4, 400, 'lowpass');
   }
 
   public playWin() {
-    const freqs = [440, 554.37, 659.25, 880];
+    // Triumphant victory fanfare (C Major 9 arpeggio with brassy swell)
+    const freqs = [523.25, 659.25, 783.99, 987.77, 1046.50];
     freqs.forEach((freq, i) => {
-      setTimeout(() => this.playTone(freq, 'sine', 0.5, 0.3, undefined, 0, true), i * 150);
+      setTimeout(() => {
+        this.playTone(freq, 'triangle', 0.6, 0.3, undefined, (i % 2 === 0 ? -0.3 : 0.3), true);
+      }, i * 110);
     });
+    // Final triumphant chord
+    setTimeout(() => {
+      this.playTone(523.25, 'sine', 1.2, 0.35, undefined, -0.5, true);
+      this.playTone(659.25, 'sine', 1.2, 0.35, undefined, 0, true);
+      this.playTone(783.99, 'sine', 1.2, 0.35, undefined, 0.5, true);
+      this.playTone(1046.50, 'triangle', 1.4, 0.4, undefined, 0, true);
+    }, 550);
   }
 
   public playLose() {
-    const freqs = [880, 659.25, 523.25, 440];
-    freqs.forEach((freq, i) => {
-      setTimeout(() => this.playTone(freq, 'sawtooth', 0.5, 0.3, 200, 0, true), i * 200);
-    });
+    // Dramatic vinyl tape-stop shutdown effect
+    if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const duration = 0.8;
+
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(550, now);
+    osc.frequency.exponentialRampToValueAtTime(35, now + duration);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(3200, now);
+    filter.frequency.exponentialRampToValueAtTime(60, now + duration);
+
+    const finalVol = 0.45 * this.sfxVolume;
+    gain.gain.setValueAtTime(finalVol, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + duration);
   }
 
   public playUIHover() {
-    this.playTone(600, 'sine', 0.05, 0.05);
+    this.playTone(680, 'sine', 0.04, 0.06);
   }
 
   public playUIClick() {
-    this.playTone(900, 'square', 0.05, 0.1);
+    this.playTone(950, 'triangle', 0.05, 0.12, 450);
   }
 
   public playComboMilestone(combo: number) {
-    const baseFreq = 440 + (combo * 5);
-    this.playTone(baseFreq, 'sine', 0.2, 0.2, undefined, -0.5, true);
-    setTimeout(() => this.playTone(baseFreq * 1.5, 'sine', 0.4, 0.2, undefined, 0.5, true), 150);
+    if (combo <= 5) {
+      this.playTone(523.25, 'sine', 0.15, 0.22, undefined, -0.3, true);
+      setTimeout(() => this.playTone(659.25, 'sine', 0.25, 0.25, undefined, 0.3, true), 90);
+    } else if (combo <= 10) {
+      // 3-note flourish
+      [523.25, 659.25, 783.99].forEach((f, idx) => {
+        setTimeout(() => this.playTone(f, 'sine', 0.22, 0.25, undefined, (idx - 1) * 0.4, true), idx * 80);
+      });
+    } else if (combo <= 25) {
+      // 4-note ascending fanfare with sparkle
+      [523.25, 659.25, 783.99, 1046.50].forEach((f, idx) => {
+        setTimeout(() => this.playTone(f, 'triangle', 0.3, 0.28, undefined, (idx % 2 === 0 ? -0.4 : 0.4), true), idx * 75);
+      });
+    } else {
+      // 50+ GODLIKE crescendo
+      [523.25, 659.25, 783.99, 1046.50, 1318.51].forEach((f, idx) => {
+        setTimeout(() => this.playTone(f, 'sawtooth', 0.45, 0.32, undefined, (idx % 2 === 0 ? -0.5 : 0.5), true), idx * 70);
+      });
+    }
   }
 
   public playDifficultyUp() {
-    this.playTone(400, 'sawtooth', 0.5, 0.2, 800, 0, true);
+    this.playTone(350, 'sawtooth', 0.4, 0.25, 750, 0, true);
   }
 
   public playPowerUpGained() {
-    this.playTone(600, 'sine', 0.1, 0.2, undefined, 0, true);
-    setTimeout(() => this.playTone(800, 'sine', 0.2, 0.2, undefined, 0, true), 100);
-    setTimeout(() => this.playTone(1000, 'sine', 0.3, 0.2, undefined, 0, true), 200);
+    this.playTone(523.25, 'sine', 0.1, 0.22, undefined, -0.3, true);
+    setTimeout(() => this.playTone(659.25, 'sine', 0.15, 0.22, undefined, 0, true), 90);
+    setTimeout(() => this.playTone(1046.50, 'sine', 0.35, 0.25, undefined, 0.3, true), 180);
   }
 
   public playPowerUpUsed() {
-    this.playTone(200, 'square', 0.5, 0.3, 50, 0, true);
+    this.playTone(280, 'square', 0.45, 0.35, 40, 0, true);
+    this.playNoiseClick('pink', 0.18, 0.3, 600, 'lowpass');
   }
 
   // --- Procedural BGM ---
@@ -279,6 +447,7 @@ export class SoundEngine {
     }
 
     this.stopBossBGM();
+    this.stopHeartbeat();
 
     this.isPlayingGameplayBgm = false;
     this.isPlayingMenuBgm = false;

@@ -43,6 +43,13 @@ interface ParticleEntity {
   life: number;
   maxLife: number;
   color: string;
+  type: 'spark' | 'shockwave' | 'shard' | 'ember';
+  size: number;
+  radius?: number;
+  maxRadius?: number;
+  gravity?: number;
+  rotation?: number;
+  vRot?: number;
 }
 
 interface FloatingCombatNumber {
@@ -53,6 +60,17 @@ interface FloatingCombatNumber {
   maxLife: number;
   color: string;
   isCrit: boolean;
+  scale?: number;
+}
+
+interface LaserTracer {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  life: number;
+  maxLife: number;
+  color: string;
 }
 
 export class GameEngine {
@@ -82,8 +100,12 @@ export class GameEngine {
   private words: WordEntity[] = [];
   private targetedWordId: string | null = null;
   private particles: ParticleEntity[] = [];
+  private laserTracers: LaserTracer[] = [];
   private shakeIntensity: number = 0;
   private frozenTimer: number = 0;
+  private screenFlashColor: string | null = null;
+  private screenFlashTimer: number = 0;
+  private screenFlashMaxTimer: number = 0;
   
   // Difficulty Scaling
   private timeElapsed: number = 0;
@@ -375,15 +397,20 @@ export class GameEngine {
 
     if (this.timeElapsed >= this.matchDuration && !this.state.isGameOver) {
       this.state.isGameOver = true;
-      this.state.survived = false;
+      this.state.survived = !this.bossEntity; // Standard match survival is victory!
       this.notifyState();
       
       const minutes = this.timeElapsed / 60000;
       const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
       const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
       
+      this.sound.stopHeartbeat();
       this.sound.stopBGM();
-      this.sound.playLose();
+      if (this.state.survived) {
+        this.sound.playWin();
+      } else {
+        this.sound.playLose();
+      }
       this.onGameOverCallback(this.state.score, this.state.maxCombo, this.state.survived, {
         wpm, accuracy, garbageSent: this.state.garbageSent
       });
@@ -445,13 +472,47 @@ export class GameEngine {
       if (this.shakeIntensity < 0) this.shakeIntensity = 0;
     }
 
+    // Update screen flash
+    if (this.screenFlashTimer > 0) {
+      this.screenFlashTimer -= deltaTime;
+      if (this.screenFlashTimer <= 0) {
+        this.screenFlashTimer = 0;
+        this.screenFlashColor = null;
+      }
+    }
+
+    // Update laser tracers
+    for (let i = this.laserTracers.length - 1; i >= 0; i--) {
+      const tracer = this.laserTracers[i];
+      tracer.life -= deltaTime;
+      if (tracer.life <= 0) {
+        this.laserTracers.splice(i, 1);
+      }
+    }
+
+    // Update Particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
-      p.x += p.vx * deltaTime;
-      p.y += p.vy * deltaTime;
       p.life -= deltaTime;
       if (p.life <= 0) {
         this.particles.splice(i, 1);
+        continue;
+      }
+
+      if (p.type === 'shockwave') {
+        const progress = 1 - (p.life / p.maxLife);
+        p.radius = (p.maxRadius || 45) * Math.sin(progress * Math.PI / 2);
+      } else {
+        if (p.gravity) {
+          p.vy += p.gravity * deltaTime;
+        }
+        p.x += p.vx * deltaTime;
+        p.y += p.vy * deltaTime;
+        p.vx *= 0.985;
+        p.vy *= 0.985;
+        if (p.vRot) {
+          p.rotation = (p.rotation || 0) + p.vRot * deltaTime;
+        }
       }
     }
 
@@ -459,7 +520,7 @@ export class GameEngine {
     for (let i = this.bossDamageNumbers.length - 1; i >= 0; i--) {
       const fn = this.bossDamageNumbers[i];
       fn.life -= deltaTime;
-      fn.y -= deltaTime * 0.04; // Drift upward
+      fn.y -= deltaTime * 0.045; // Drift upward
       if (fn.life <= 0) {
         this.bossDamageNumbers.splice(i, 1);
       }
@@ -535,6 +596,90 @@ export class GameEngine {
     if (shieldHp !== undefined) this.bossShieldHp = shieldHp;
   }
 
+  public triggerScreenFlash(color: string, durationMs: number = 300) {
+    this.screenFlashColor = color;
+    this.screenFlashTimer = durationMs;
+    this.screenFlashMaxTimer = durationMs;
+  }
+
+  public spawnPopup(x: number, y: number, text: string, color: string = '#fcd34d', isCrit: boolean = false) {
+    this.bossDamageNumbers.push({
+      x,
+      y,
+      text,
+      life: 950,
+      maxLife: 950,
+      color,
+      isCrit,
+      scale: isCrit ? 1.4 : 1.2
+    });
+  }
+
+  public spawnSparks(x: number, y: number, color: string, count: number = 18, speedMultiplier: number = 0.25) {
+    for (let i = 0; i < count; i++) {
+      const angle = this.random() * Math.PI * 2;
+      const speed = (0.1 + this.random() * 0.25) * speedMultiplier;
+      this.particles.push({
+        x: x + (this.random() - 0.5) * 16,
+        y: y + (this.random() - 0.5) * 10,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 0.06,
+        life: 400 + this.random() * 450,
+        maxLife: 850,
+        color,
+        type: 'spark',
+        size: 2.5 + this.random() * 2,
+        gravity: 0.00035
+      });
+    }
+  }
+
+  public spawnShockwave(x: number, y: number, color: string, maxRadius: number = 55) {
+    this.particles.push({
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      life: 380,
+      maxLife: 380,
+      color,
+      type: 'shockwave',
+      size: 3,
+      radius: 4,
+      maxRadius
+    });
+  }
+
+  public spawnTypoShards(x: number, y: number) {
+    for (let i = 0; i < 9; i++) {
+      this.particles.push({
+        x: x + (this.random() - 0.5) * 24,
+        y: y + (this.random() - 0.5) * 12,
+        vx: (this.random() - 0.5) * 0.35,
+        vy: (this.random() - 0.5) * 0.35,
+        life: 350 + this.random() * 200,
+        maxLife: 550,
+        color: '#ef4444',
+        type: 'shard',
+        size: 4 + this.random() * 4,
+        rotation: this.random() * Math.PI * 2,
+        vRot: (this.random() - 0.5) * 0.02
+      });
+    }
+  }
+
+  public spawnLaserTracer(fromX: number, fromY: number, toX: number, toY: number, color: string) {
+    this.laserTracers.push({
+      x1: fromX,
+      y1: fromY,
+      x2: toX,
+      y2: toY,
+      life: 120,
+      maxLife: 120,
+      color
+    });
+  }
+
   private addFloatingCombatNumber(x: number, y: number, text: string, isCrit: boolean = false, color: string = '#fcd34d') {
     this.bossDamageNumbers.push({
       x,
@@ -543,7 +688,8 @@ export class GameEngine {
       life: 1000,
       maxLife: 1000,
       color,
-      isCrit
+      isCrit,
+      scale: isCrit ? 1.4 : 1.1
     });
   }
 
@@ -579,6 +725,22 @@ export class GameEngine {
       this.renderBossHeader(rect.width);
     }
 
+    // Draw laser tracers
+    for (const tracer of this.laserTracers) {
+      const alpha = Math.max(0, tracer.life / tracer.maxLife);
+      this.ctx.save();
+      this.ctx.globalAlpha = alpha;
+      this.ctx.strokeStyle = tracer.color;
+      this.ctx.lineWidth = 2.5 * alpha;
+      this.ctx.shadowColor = tracer.color;
+      this.ctx.shadowBlur = 8;
+      this.ctx.beginPath();
+      this.ctx.moveTo(tracer.x1, tracer.y1);
+      this.ctx.lineTo(tracer.x2, tracer.y2);
+      this.ctx.stroke();
+      this.ctx.restore();
+    }
+
     // Draw words
     this.ctx.font = `24px "${this.fontFamily}", sans-serif`;
     this.ctx.textAlign = 'center';
@@ -596,6 +758,55 @@ export class GameEngine {
       const totalWidth = typedWidth + remainingWidth;
       
       const startX = word.x - totalWidth / 2;
+
+      // Targeting reticle around active word
+      if (isTargeted) {
+        const padX = 14;
+        const padY = 8;
+        const boxX = startX - padX;
+        const boxY = word.y - 14 - padY / 2;
+        const boxW = totalWidth + padX * 2;
+        const boxH = 28 + padY;
+        const cLen = 7;
+
+        this.ctx.save();
+        this.ctx.strokeStyle = this.theme.wordTyped;
+        this.ctx.lineWidth = 2;
+        this.ctx.shadowColor = this.theme.wordTyped;
+        this.ctx.shadowBlur = 8;
+
+        // 4 Corner Brackets
+        this.ctx.beginPath();
+        // Top Left
+        this.ctx.moveTo(boxX, boxY + cLen);
+        this.ctx.lineTo(boxX, boxY);
+        this.ctx.lineTo(boxX + cLen, boxY);
+        // Top Right
+        this.ctx.moveTo(boxX + boxW - cLen, boxY);
+        this.ctx.lineTo(boxX + boxW, boxY);
+        this.ctx.lineTo(boxX + boxW, boxY + cLen);
+        // Bottom Left
+        this.ctx.moveTo(boxX, boxY + boxH - cLen);
+        this.ctx.lineTo(boxX, boxY + boxH);
+        this.ctx.lineTo(boxX + cLen, boxY + boxH);
+        // Bottom Right
+        this.ctx.moveTo(boxX + boxW - cLen, boxY + boxH);
+        this.ctx.lineTo(boxX + boxW, boxY + boxH);
+        this.ctx.lineTo(boxX + boxW, boxY + boxH - cLen);
+        this.ctx.stroke();
+
+        // Pulsing active character cursor
+        if (remainingText.length > 0) {
+          const nextChar = remainingText[0];
+          const nextCharWidth = this.ctx.measureText(nextChar).width;
+          const cursorX = startX + typedWidth;
+          const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.014);
+          this.ctx.globalAlpha = pulse;
+          this.ctx.fillStyle = this.theme.wordTyped;
+          this.ctx.fillRect(cursorX, word.y + 14, Math.max(8, nextCharWidth), 3);
+        }
+        this.ctx.restore();
+      }
 
       // Typed characters
       this.ctx.fillStyle = this.theme.wordTyped;
@@ -616,28 +827,88 @@ export class GameEngine {
       this.ctx.shadowBlur = 0;
     }
 
-    // Draw particles
+    // Draw multi-form particles
     for (const p of this.particles) {
       const alpha = Math.max(0, p.life / p.maxLife);
+      this.ctx.save();
       this.ctx.globalAlpha = alpha;
-      this.ctx.fillStyle = p.color;
-      this.ctx.fillRect(p.x, p.y, 4, 4);
+      
+      if (p.type === 'shockwave') {
+        this.ctx.beginPath();
+        this.ctx.arc(p.x, p.y, p.radius || 10, 0, Math.PI * 2);
+        this.ctx.strokeStyle = p.color;
+        this.ctx.lineWidth = Math.max(1, (p.size || 3) * alpha);
+        this.ctx.shadowColor = p.color;
+        this.ctx.shadowBlur = 8;
+        this.ctx.stroke();
+      } else if (p.type === 'spark' || p.type === 'ember') {
+        this.ctx.beginPath();
+        this.ctx.arc(p.x, p.y, Math.max(1, p.size * alpha), 0, Math.PI * 2);
+        this.ctx.fillStyle = p.color;
+        this.ctx.shadowColor = p.color;
+        this.ctx.shadowBlur = p.type === 'spark' ? 6 : 10;
+        this.ctx.fill();
+      } else if (p.type === 'shard') {
+        this.ctx.translate(p.x, p.y);
+        this.ctx.rotate(p.rotation || 0);
+        this.ctx.fillStyle = p.color;
+        this.ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+      } else {
+        this.ctx.fillStyle = p.color;
+        this.ctx.fillRect(p.x, p.y, 4, 4);
+      }
+      this.ctx.restore();
     }
-    this.ctx.globalAlpha = 1;
 
-    // Draw Floating Combat Numbers
+    // Draw Floating Combat Numbers & Popups
     for (const fn of this.bossDamageNumbers) {
       const alpha = Math.max(0, fn.life / fn.maxLife);
+      const progress = 1 - alpha;
+      const scale = (fn.scale || 1) * (progress < 0.2 ? 0.6 + (progress / 0.2) * 0.4 : 1);
+      this.ctx.save();
       this.ctx.globalAlpha = alpha;
+      this.ctx.translate(fn.x, fn.y);
+      this.ctx.scale(scale, scale);
       this.ctx.font = fn.isCrit ? `bold 28px "${this.fontFamily}", sans-serif` : `bold 20px "${this.fontFamily}", sans-serif`;
       this.ctx.fillStyle = fn.color;
       this.ctx.shadowColor = fn.isCrit ? '#ef4444' : '#000000';
       this.ctx.shadowBlur = fn.isCrit ? 10 : 4;
       this.ctx.textAlign = 'center';
-      this.ctx.fillText(fn.text, fn.x, fn.y);
+      this.ctx.fillText(fn.text, 0, 0);
+      this.ctx.restore();
     }
-    this.ctx.globalAlpha = 1;
-    this.ctx.shadowBlur = 0;
+
+    // Fullscreen Screen Flash Vignette
+    if (this.screenFlashTimer > 0 && this.screenFlashColor) {
+      const flashAlpha = (this.screenFlashTimer / this.screenFlashMaxTimer) * 0.45;
+      this.ctx.save();
+      this.ctx.fillStyle = this.screenFlashColor;
+      this.ctx.globalAlpha = flashAlpha;
+      this.ctx.fillRect(0, 0, rect.width, rect.height);
+      this.ctx.restore();
+    }
+
+    // Low-health pulsing red vignette when 1 life remains
+    if (this.state.lives === 1 && !this.state.isGameOver) {
+      const pulse = 0.2 + 0.14 * Math.sin(performance.now() * 0.007);
+      const grad = this.ctx.createRadialGradient(rect.width / 2, rect.height / 2, rect.width * 0.35, rect.width / 2, rect.height / 2, rect.width * 0.65);
+      grad.addColorStop(0, 'rgba(239, 68, 68, 0)');
+      grad.addColorStop(1, `rgba(239, 68, 68, ${pulse})`);
+      this.ctx.fillStyle = grad;
+      this.ctx.fillRect(0, 0, rect.width, rect.height);
+    }
+
+    // Fever Mode (Combo >= 15) Glowing Edge Aura
+    if (this.state.combo >= 15 && !this.state.isGameOver) {
+      this.ctx.save();
+      const feverPulse = 0.4 + 0.3 * Math.sin(performance.now() * 0.008);
+      this.ctx.strokeStyle = `rgba(56, 189, 248, ${feverPulse})`;
+      this.ctx.lineWidth = 6;
+      this.ctx.shadowColor = '#38bdf8';
+      this.ctx.shadowBlur = 18;
+      this.ctx.strokeRect(3, 3, rect.width - 6, rect.height - 6);
+      this.ctx.restore();
+    }
 
     this.ctx.restore();
   }
@@ -792,6 +1063,10 @@ export class GameEngine {
         target.typed += key;
         this.state.correctKeystrokes += 1;
         this.sound.playKeystroke(true, this.state.combo);
+
+        const rect = this.canvas.getBoundingClientRect();
+        this.spawnLaserTracer(rect.width / 2, rect.height, target.x, target.y, this.theme.wordTyped);
+        this.spawnSparks(target.x, target.y, this.theme.wordTyped, 4, 0.15);
         
         // Word completed
         if (target.typed === target.text) {
@@ -803,6 +1078,10 @@ export class GameEngine {
         target.hasTypo = true;
         target.isGolden = false;
         this.sound.playKeystroke(false, 0);
+        this.spawnTypoShards(target.x, target.y);
+        this.spawnPopup(target.x, target.y - 20, 'MISS!', '#ef4444', false);
+        this.triggerScreenFlash('rgba(239, 68, 68, 0.22)', 180);
+        this.shakeIntensity = Math.max(this.shakeIntensity, 7);
         this.breakCombo();
       }
     } else {
@@ -817,6 +1096,10 @@ export class GameEngine {
         target.typed += key;
         this.state.correctKeystrokes += 1;
         this.sound.playKeystroke(true, this.state.combo);
+
+        const rect = this.canvas.getBoundingClientRect();
+        this.spawnLaserTracer(rect.width / 2, rect.height, target.x, target.y, this.theme.wordTyped);
+        this.spawnSparks(target.x, target.y, this.theme.wordTyped, 4, 0.15);
         
         if (target.typed === target.text) {
           this.destroyWord(target.id);
@@ -825,6 +1108,8 @@ export class GameEngine {
         // Typed a key that doesn't match any word
         kStat.errors += 1;
         this.sound.playKeystroke(false, 0);
+        this.triggerScreenFlash('rgba(239, 68, 68, 0.16)', 150);
+        this.shakeIntensity = Math.max(this.shakeIntensity, 5);
         this.breakCombo();
       }
     }
@@ -877,6 +1162,8 @@ export class GameEngine {
         const types: Array<'nuke' | 'freeze' | 'scramble'> = ['nuke', 'freeze', 'scramble'];
         this.state.activePowerUp = types[Math.floor(this.random() * types.length)];
         this.sound.playPowerUpGained?.();
+        this.spawnPopup(word.x, word.y - 25, `+${this.state.activePowerUp.toUpperCase()}!`, '#fbbf24', true);
+        this.triggerScreenFlash('rgba(251, 191, 36, 0.28)', 250);
       }
 
       // Boss Damage Processing
@@ -933,18 +1220,12 @@ export class GameEngine {
         }
       }
 
-      for (let i = 0; i < 15; i++) {
-        this.particles.push({
-          x: word.x + (this.random() - 0.5) * 40,
-          y: word.y + (this.random() - 0.5) * 20,
-          vx: (this.random() - 0.5) * 0.2,
-          vy: (this.random() - 0.5) * 0.2,
-          life: 500 + this.random() * 500,
-          maxLife: 1000,
-          color: word.isJunk ? '#f87171' : this.theme.wordTyped
-        });
-      }
+      const burstColor = word.isJunk ? '#f87171' : (word.isGolden ? '#fbbf24' : this.theme.wordTyped);
+      this.spawnShockwave(word.x, word.y, burstColor, word.isGolden ? 65 : 45);
+      this.spawnSparks(word.x, word.y, burstColor, word.isGolden ? 24 : 16, word.isGolden ? 0.35 : 0.22);
     }
+    const wordX = word ? word.x : this.canvas.width / 2;
+    const wordY = word ? word.y : 100;
     this.words = this.words.filter(w => w.id !== id);
     this.targetedWordId = null;
     this.sound.playWordComplete();
@@ -957,8 +1238,25 @@ export class GameEngine {
       }
       this.state.score += 10 * this.state.combo;
       
-      if (this.state.combo > 0 && this.state.combo % 10 === 0) {
-        this.sound.playComboMilestone(this.state.combo);
+      // Dynamic Combo Milestones & Popups
+      if (this.state.combo === 5) {
+        this.sound.playComboMilestone(5);
+        this.spawnPopup(wordX, wordY - 25, '5x COMBO!', '#38bdf8');
+      } else if (this.state.combo === 10) {
+        this.sound.playComboMilestone(10);
+        this.spawnPopup(wordX, wordY - 30, 'FEVER MODE!', '#f59e0b', true);
+        this.triggerScreenFlash('rgba(245, 158, 11, 0.22)', 220);
+      } else if (this.state.combo === 25) {
+        this.sound.playComboMilestone(25);
+        this.spawnPopup(wordX, wordY - 35, 'UNSTOPPABLE!', '#ec4899', true);
+        this.triggerScreenFlash('rgba(236, 72, 153, 0.25)', 280);
+      } else if (this.state.combo === 50) {
+        this.sound.playComboMilestone(50);
+        this.spawnPopup(wordX, wordY - 40, 'GODLIKE!!', '#a855f7', true);
+        this.triggerScreenFlash('rgba(168, 85, 247, 0.32)', 350);
+      } else if (this.state.combo > 50 && this.state.combo % 25 === 0) {
+        this.sound.playComboMilestone(50);
+        this.spawnPopup(wordX, wordY - 35, `${this.state.combo}x STREAK!`, '#6366f1', true);
       }
       
       // Check garbage mechanics (e.g., every 5 combo sends 1 garbage)
@@ -980,11 +1278,17 @@ export class GameEngine {
   }
 
   private loseLife() {
-    this.shakeIntensity = 20;
+    this.shakeIntensity = 22;
     this.state.lives -= 1;
     this.state.combo = 0;
+    this.triggerScreenFlash('rgba(239, 68, 68, 0.38)', 320);
+    
+    if (this.state.lives === 1) {
+      this.sound.startHeartbeat();
+    }
     
     if (this.state.lives <= 0) {
+      this.sound.stopHeartbeat();
       this.sound.stopBGM();
       this.sound.playLose();
       this.state.isGameOver = true;
@@ -1041,6 +1345,8 @@ export class GameEngine {
     this.sound.playPowerUpUsed?.();
     
     if (type === 'nuke') {
+      this.shakeIntensity = 28;
+      this.triggerScreenFlash('rgba(245, 158, 11, 0.42)', 400);
       const bottomWords = [...this.words].sort((a, b) => b.y - a.y).slice(0, 3);
       bottomWords.forEach(w => this.destroyWord(w.id, false));
       
@@ -1053,6 +1359,7 @@ export class GameEngine {
         this.onBossDamageDealt?.(nukeDamage, true, this.bossHp);
       }
     } else {
+      this.triggerScreenFlash('rgba(56, 189, 248, 0.32)', 300);
       this.onPowerUpUsed(type);
     }
     this.notifyState();

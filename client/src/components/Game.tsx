@@ -8,7 +8,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy, faBox, faPlus, faSearch, faThumbsUp, faEye, faTag, faDownload, faUpload, faFileCode, faTrash, faCheckCircle, faKeyboard, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
-import { SoundEngine } from '@/lib/SoundEngine';
+import { SoundEngine, SoundProfile } from '@/lib/SoundEngine';
 import { THEMES, FONTS } from '@/lib/themes';
 import { BOSSES, BOSS_DIFFICULTIES, BossConfig, BossDifficulty } from '@/lib/bosses';
 import { WordPack, WordPackCategory, WordPackDifficulty, WORD_PACK_CATEGORIES, OFFICIAL_WORD_PACKS, sanitizeWords, validateWordPack } from '@/lib/wordPacks';
@@ -240,12 +240,14 @@ export default function Game() {
     showCombo: boolean;
     sfxVolume: number;
     bgmVolume: number;
+    soundProfile: SoundProfile;
   }>({
     showWpm: true,
     showAccuracy: true,
     showCombo: true,
     sfxVolume: 0.8,
-    bgmVolume: 0.6
+    bgmVolume: 0.6,
+    soundProfile: 'mechanical_clicky'
   });
 
   const [isMuted, setIsMuted] = useState(false);
@@ -291,7 +293,11 @@ export default function Game() {
     if (savedTitle) setUserTitle(savedTitle);
     if (savedHud) {
       try {
-        setHudSettings(JSON.parse(savedHud));
+        const parsed = JSON.parse(savedHud);
+        setHudSettings(prev => ({ ...prev, ...parsed }));
+        if (parsed.soundProfile && soundEngineRef.current) {
+          soundEngineRef.current.setSoundProfile(parsed.soundProfile);
+        }
       } catch(e) {}
     }
 
@@ -533,9 +539,16 @@ export default function Game() {
       socketRef.current.on('match_result', (data: { leaderboard: any[], eloChanges?: Record<string, any> }) => {
         setWaitingForResult(false);
         setFinalLeaderboard(data.leaderboard);
+        const myId = socketRef.current?.id;
+        const isWinner = data.leaderboard && data.leaderboard.length > 0 && data.leaderboard[0].id === myId;
+        if (isWinner) {
+          soundEngineRef.current?.playWin();
+        } else {
+          soundEngineRef.current?.playLose();
+        }
+
         if (data.eloChanges) {
           setEloChanges(data.eloChanges);
-          const myId = socketRef.current?.id;
           if (myId && data.eloChanges[myId]) {
             const myElo = data.eloChanges[myId];
             setUserRating(myElo.newRating);
@@ -987,6 +1000,9 @@ export default function Game() {
     if (soundEngineRef.current) {
       soundEngineRef.current.setSfxVolume(newHud.sfxVolume);
       soundEngineRef.current.setBgmVolume(newHud.bgmVolume);
+      if (newHud.soundProfile) {
+        soundEngineRef.current.setSoundProfile(newHud.soundProfile);
+      }
     }
     
     localStorage.setItem('typeclash_customization', JSON.stringify(nextCustomization));
@@ -1469,11 +1485,18 @@ export default function Game() {
             )}
           </div>
           
-          <div className={styles.statPanel}>
+          <div className={styles.statPanel} style={gameState.combo >= 15 ? { border: '1px solid #38bdf8', boxShadow: '0 0 20px rgba(56, 189, 248, 0.4)' } : {}}>
             {hudSettings.showCombo && (
               <div className={styles.statItem} style={{ color: gameState.combo > 5 ? '#fcd34d' : 'inherit' }}>
-                <div className={styles.statHeader} style={{ color: gameState.combo > 5 ? '#fde68a' : '#94a3b8' }}><FontAwesomeIcon icon={faFire} style={{ fontSize: 16 }} /> Combo</div>
-                <motion.div key={gameState.combo} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={styles.statValue} style={{ color: gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>
+                <div className={styles.statHeader} style={{ color: gameState.combo > 5 ? '#fde68a' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <FontAwesomeIcon icon={faFire} style={{ fontSize: 16 }} /> Combo
+                  {gameState.combo >= 10 && (
+                    <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: '4px', background: 'linear-gradient(135deg, #f59e0b, #ef4444)', color: '#fff', fontWeight: 800, letterSpacing: '0.05em' }}>
+                      FEVER
+                    </span>
+                  )}
+                </div>
+                <motion.div key={gameState.combo} initial={{ scale: 1.25 }} animate={{ scale: 1 }} className={styles.statValue} style={{ color: gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>
                   x{gameState.combo}
                 </motion.div>
               </div>
@@ -2427,6 +2450,56 @@ export default function Game() {
                     }} 
                     style={{ width: '100%', accentColor: '#38bdf8', cursor: 'pointer' }}
                   />
+                </div>
+              </div>
+
+              {/* Keyboard Sound Profile Selection */}
+              <div style={{ marginBottom: '1.5rem', background: 'rgba(0,0,0,0.25)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <FontAwesomeIcon icon={faKeyboard} style={{ color: '#38bdf8' }} /> Keyboard Switch Sound Profile
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Acoustic Simulation</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  {[
+                    { id: 'mechanical_clicky', name: 'Clicky Blue Switch', desc: 'Tactile, crisp high-snap click' },
+                    { id: 'thock', name: 'Deep Thock (Linear)', desc: 'Smooth, deep resonant bottom-out' },
+                    { id: 'arcade', name: 'Retro Synth (Arcade)', desc: 'Musical harmonic tones scaling with combo' },
+                    { id: 'scifi', name: 'Sci-Fi Laser', desc: 'Futuristic micro blaster pulses' }
+                  ].map(profile => {
+                    const isSelected = hudSettings.soundProfile === profile.id;
+                    return (
+                      <div
+                        key={profile.id}
+                        onClick={() => {
+                          const nextHud = { ...hudSettings, soundProfile: profile.id as SoundProfile };
+                          updateCustomization(customization.theme, customization.fontFamily, userTitle, nextHud);
+                          soundEngineRef.current?.setSoundProfile(profile.id as SoundProfile);
+                          soundEngineRef.current?.playKeystroke(true, 5);
+                        }}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          background: isSelected ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255,255,255,0.03)',
+                          border: isSelected ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.08)',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '2px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.88rem', color: isSelected ? '#38bdf8' : '#f8fafc' }}>
+                            {profile.name}
+                          </strong>
+                          {isSelected && <FontAwesomeIcon icon={faCheck} style={{ color: '#38bdf8', fontSize: '0.8rem' }} />}
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{profile.desc}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
