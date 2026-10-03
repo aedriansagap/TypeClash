@@ -3,6 +3,7 @@ export type SoundProfile = 'mechanical_clicky' | 'thock' | 'arcade' | 'scifi';
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   public isMuted: boolean = false;
+  public masterVolume: number = 1.0;
   public sfxVolume: number = 0.8;
   public bgmVolume: number = 0.6;
   public soundProfile: SoundProfile = 'mechanical_clicky';
@@ -80,11 +81,13 @@ export class SoundEngine {
     volume: number = 0.1, 
     pitchSweep?: number, 
     pan: number = 0,
-    useReverb: boolean = false
+    useReverb: boolean = false,
+    channel: 'sfx' | 'bgm' = 'sfx'
   ) {
     if (!this.ctx || this.isMuted) return;
 
-    const finalVolume = volume * this.sfxVolume;
+    const channelScale = channel === 'bgm' ? this.bgmVolume : this.sfxVolume;
+    const finalVolume = volume * channelScale * this.masterVolume;
     if (finalVolume <= 0.0001) return;
 
     const osc = this.ctx.createOscillator();
@@ -204,7 +207,7 @@ export class SoundEngine {
     filter.frequency.value = filterFreq;
 
     const gain = this.ctx.createGain();
-    const finalVol = volume * this.sfxVolume;
+    const finalVol = volume * this.sfxVolume * this.masterVolume;
     gain.gain.setValueAtTime(finalVol, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
@@ -300,7 +303,7 @@ export class SoundEngine {
     filter.frequency.setValueAtTime(3200, now);
     filter.frequency.exponentialRampToValueAtTime(60, now + duration);
 
-    const finalVol = 0.45 * this.sfxVolume;
+    const finalVol = 0.45 * this.sfxVolume * this.masterVolume;
     gain.gain.setValueAtTime(finalVol, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
@@ -418,8 +421,7 @@ export class SoundEngine {
 
     const playNextNote = () => {
       if (!this.isPlayingMenuBgm || !this.ctx || this.isMuted) return;
-      const noteVol = 0.05 * this.bgmVolume;
-      this.playTone(notes[noteIndex], 'sine', 2.0, noteVol, undefined, (Math.random()-0.5), true);
+      this.playTone(notes[noteIndex], 'sine', 2.0, 0.05, undefined, (Math.random()-0.5), true, 'bgm');
       noteIndex = (noteIndex + 1) % notes.length;
     };
 
@@ -460,6 +462,13 @@ export class SoundEngine {
     }
   }
 
+  public setMasterVolume(volume: number) {
+    this.masterVolume = Math.max(0, Math.min(1, volume));
+    if (this.bgmGain && this.ctx) {
+      this.bgmGain.gain.setTargetAtTime(0.05 * this.bgmVolume * this.masterVolume, this.ctx.currentTime, 0.1);
+    }
+  }
+
   public setSfxVolume(volume: number) {
     this.sfxVolume = Math.max(0, Math.min(1, volume));
   }
@@ -467,8 +476,20 @@ export class SoundEngine {
   public setBgmVolume(volume: number) {
     this.bgmVolume = Math.max(0, Math.min(1, volume));
     if (this.bgmGain && this.ctx) {
-      this.bgmGain.gain.setTargetAtTime(0.05 * this.bgmVolume, this.ctx.currentTime, 0.1);
+      this.bgmGain.gain.setTargetAtTime(0.05 * this.bgmVolume * this.masterVolume, this.ctx.currentTime, 0.1);
     }
+  }
+
+  public previewSoundProfile(profile?: SoundProfile) {
+    this.init();
+    this.resume();
+    const saved = this.soundProfile;
+    if (profile) this.soundProfile = profile;
+    this.playKeystroke(true, 5);
+    setTimeout(() => {
+      this.playKeystroke(true, 6);
+    }, 90);
+    this.soundProfile = saved;
   }
 
   // --- Boss Battle Procedural Soundtracks --- //
@@ -477,7 +498,7 @@ export class SoundEngine {
     if (!this.ctx || this.isMuted) return;
     const now = this.ctx.currentTime;
     const gain = this.ctx.createGain();
-    const finalVol = volume * this.sfxVolume * this.bgmVolume;
+    const finalVol = volume * this.masterVolume * this.bgmVolume;
     if (finalVol <= 0.0001) return;
 
     if (type === 'kick') {
@@ -649,18 +670,18 @@ export class SoundEngine {
 
     // 1. Driving Bassline (Sawtooth + Overdrive feel)
     const bassFreq = bassScale[step];
-    const bassVol = 0.08 * this.bgmVolume;
-    this.playTone(bassFreq, 'sawtooth', stepDuration * 0.9, bassVol);
+    const bassVol = 0.08;
+    this.playTone(bassFreq, 'sawtooth', stepDuration * 0.9, bassVol, undefined, 0, false, 'bgm');
     if (phase === 2) {
       // Phase 2 adds octave power 5th
-      this.playTone(bassFreq * 1.5, 'square', stepDuration * 0.8, bassVol * 0.7);
+      this.playTone(bassFreq * 1.5, 'square', stepDuration * 0.8, bassVol * 0.7, undefined, 0, false, 'bgm');
     }
 
     // 2. Searing Lead Arpeggios
     if (step % 2 === 0 || phase === 2) {
       const leadFreq = leadScale[step] * (phase === 2 ? 2 : 1);
-      const leadVol = 0.05 * this.bgmVolume;
-      this.playTone(leadFreq, 'sawtooth', stepDuration * 1.2, leadVol, leadFreq * 1.05, 0.2, true);
+      const leadVol = 0.05;
+      this.playTone(leadFreq, 'sawtooth', stepDuration * 1.2, leadVol, leadFreq * 1.05, 0.2, true, 'bgm');
     }
 
     // 3. Heavy Industrial Drums
@@ -687,14 +708,14 @@ export class SoundEngine {
     // 1. Cyber Syncopated Square Bass
     const bassFreq = bassPattern[step];
     if (bassFreq > 0) {
-      const bassVol = 0.09 * this.bgmVolume;
-      this.playTone(bassFreq, 'square', stepDuration * 0.85, bassVol, bassFreq * 0.95);
+      const bassVol = 0.09;
+      this.playTone(bassFreq, 'square', stepDuration * 0.85, bassVol, bassFreq * 0.95, 0, false, 'bgm');
     }
 
     // 2. Chiptune 16th-note Arpeggio
     const leadFreq = leadPattern[step] * (phase === 2 ? 1.5 : 1);
-    const leadVol = 0.045 * this.bgmVolume;
-    this.playTone(leadFreq, 'triangle', stepDuration * 0.8, leadVol, undefined, (Math.random() - 0.5) * 0.6);
+    const leadVol = 0.045;
+    this.playTone(leadFreq, 'triangle', stepDuration * 0.8, leadVol, undefined, (Math.random() - 0.5) * 0.6, false, 'bgm');
 
     // 3. Synthwave Drums & Glitch bursts
     if (step === 0 || step === 4 || step === 8 || step === 12) {
@@ -725,17 +746,17 @@ export class SoundEngine {
     // 1. Subterranean Sub-Bass
     if (step % 4 === 0) {
       const bassFreq = subBass[step];
-      const bassVol = 0.12 * this.bgmVolume;
-      this.playTone(bassFreq, 'sine', stepDuration * 3.8, bassVol);
+      const bassVol = 0.12;
+      this.playTone(bassFreq, 'sine', stepDuration * 3.8, bassVol, undefined, 0, false, 'bgm');
     }
 
     // 2. Cosmic Ambient Pad Chords (Sustained atmospheric triad)
     if (step % 4 === 0) {
       const chordIdx = Math.floor(step / 4);
       const chord = padChords[chordIdx];
-      const padVol = 0.04 * this.bgmVolume;
+      const padVol = 0.04;
       chord.forEach(freq => {
-        this.playTone(freq * (phase === 2 ? 2 : 1), 'sine', stepDuration * 3.5, padVol, undefined, 0, true);
+        this.playTone(freq * (phase === 2 ? 2 : 1), 'sine', stepDuration * 3.5, padVol, undefined, 0, true, 'bgm');
       });
     }
 
@@ -750,7 +771,7 @@ export class SoundEngine {
 
     if (phase === 2 && step % 2 === 0) {
       // Rapid cosmic pulse
-      this.playTone(440 + step * 25, 'triangle', stepDuration * 0.6, 0.03 * this.bgmVolume, undefined, (step % 4 === 0 ? -0.5 : 0.5), true);
+      this.playTone(440 + step * 25, 'triangle', stepDuration * 0.6, 0.03, undefined, (step % 4 === 0 ? -0.5 : 0.5), true, 'bgm');
     }
   }
 
@@ -774,16 +795,16 @@ export class SoundEngine {
 
     // 1. Acidic Square Bassline
     const bassFreq = bassScale[step];
-    const bassVol = 0.07 * this.bgmVolume;
-    this.playTone(bassFreq, 'square', stepDuration * 0.75, bassVol, bassFreq * (step % 2 === 0 ? 1.02 : 0.98), 0, true);
+    const bassVol = 0.07;
+    this.playTone(bassFreq, 'square', stepDuration * 0.75, bassVol, bassFreq * (step % 2 === 0 ? 1.02 : 0.98), 0, true, 'bgm');
 
     // 2. High Matrix Lead Arpeggio
     const pan = ((step % 4) - 1.5) / 2; // Stereo sweep -0.75 to +0.75
     const leadFreq = arpeggioScale[step] * (phase === 2 ? 1.5 : 1);
-    const leadVol = (phase === 2 ? 0.06 : 0.045) * this.bgmVolume;
-    this.playTone(leadFreq, 'sine', stepDuration * 0.8, leadVol, undefined, pan, true);
+    const leadVol = (phase === 2 ? 0.06 : 0.045);
+    this.playTone(leadFreq, 'sine', stepDuration * 0.8, leadVol, undefined, pan, true, 'bgm');
     if (phase === 2 && step % 2 === 0) {
-      this.playTone(leadFreq * 2, 'triangle', stepDuration * 0.5, leadVol * 0.6, undefined, -pan, true);
+      this.playTone(leadFreq * 2, 'triangle', stepDuration * 0.5, leadVol * 0.6, undefined, -pan, true, 'bgm');
     }
 
     // 3. Cybernetic Percussion (4-on-the-floor kick, snappy electronic snare, off-beat hi-hats)

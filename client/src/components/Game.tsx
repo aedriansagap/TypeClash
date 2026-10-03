@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy, faBox, faPlus, faSearch, faThumbsUp, faEye, faTag, faDownload, faUpload, faFileCode, faTrash, faCheckCircle, faKeyboard, faRotateRight } from '@fortawesome/free-solid-svg-icons';
+import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy, faBox, faPlus, faSearch, faThumbsUp, faEye, faTag, faDownload, faUpload, faFileCode, faTrash, faCheckCircle, faKeyboard, faRotateRight, faPause, faPlay, faInfinity, faShareNodes } from '@fortawesome/free-solid-svg-icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import { SoundEngine, SoundProfile } from '@/lib/SoundEngine';
@@ -240,6 +240,7 @@ export default function Game() {
     showWpm: boolean;
     showAccuracy: boolean;
     showCombo: boolean;
+    masterVolume: number;
     sfxVolume: number;
     bgmVolume: number;
     soundProfile: SoundProfile;
@@ -247,12 +248,60 @@ export default function Game() {
     showWpm: true,
     showAccuracy: true,
     showCombo: true,
+    masterVolume: 1.0,
     sfxVolume: 0.8,
     bgmVolume: 0.6,
     soundProfile: 'mechanical_clicky'
   });
 
   const [isMuted, setIsMuted] = useState(false);
+  const [showAudioPopover, setShowAudioPopover] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isZenMode, setIsZenMode] = useState(false);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const [sessionWeakKeys, setSessionWeakKeys] = useState<{ key: string; accuracy: number; count: number }[]>([]);
+
+  const handleMasterVolumeChange = (vol: number) => {
+    const v = Math.max(0, Math.min(1, vol));
+    setHudSettings(prev => {
+      const updated = { ...prev, masterVolume: v };
+      localStorage.setItem('typeclash_hudsettings', JSON.stringify(updated));
+      return updated;
+    });
+    soundEngineRef.current?.setMasterVolume(v);
+  };
+
+  const handleSfxVolumeChange = (vol: number) => {
+    const v = Math.max(0, Math.min(1, vol));
+    setHudSettings(prev => {
+      const updated = { ...prev, sfxVolume: v };
+      localStorage.setItem('typeclash_hudsettings', JSON.stringify(updated));
+      return updated;
+    });
+    soundEngineRef.current?.setSfxVolume(v);
+  };
+
+  const handleBgmVolumeChange = (vol: number) => {
+    const v = Math.max(0, Math.min(1, vol));
+    setHudSettings(prev => {
+      const updated = { ...prev, bgmVolume: v };
+      localStorage.setItem('typeclash_hudsettings', JSON.stringify(updated));
+      return updated;
+    });
+    soundEngineRef.current?.setBgmVolume(v);
+  };
+
+  const handleSoundProfileChange = (profile: SoundProfile) => {
+    setHudSettings(prev => {
+      const updated = { ...prev, soundProfile: profile };
+      localStorage.setItem('typeclash_hudsettings', JSON.stringify(updated));
+      return updated;
+    });
+    if (soundEngineRef.current) {
+      soundEngineRef.current.setSoundProfile(profile);
+      soundEngineRef.current.previewSoundProfile(profile);
+    }
+  };
   // Mobile Detection
   const [isMobile, setIsMobile] = useState(false);
   const [dismissedMobileWarning, setDismissedMobileWarning] = useState(false);
@@ -299,6 +348,15 @@ export default function Game() {
         setHudSettings(prev => ({ ...prev, ...parsed }));
         if (parsed.soundProfile && soundEngineRef.current) {
           soundEngineRef.current.setSoundProfile(parsed.soundProfile);
+        }
+        if (parsed.masterVolume !== undefined && soundEngineRef.current) {
+          soundEngineRef.current.setMasterVolume(parsed.masterVolume);
+        }
+        if (parsed.sfxVolume !== undefined && soundEngineRef.current) {
+          soundEngineRef.current.setSfxVolume(parsed.sfxVolume);
+        }
+        if (parsed.bgmVolume !== undefined && soundEngineRef.current) {
+          soundEngineRef.current.setBgmVolume(parsed.bgmVolume);
         }
       } catch(e) {}
     }
@@ -376,6 +434,9 @@ export default function Game() {
       engineRef.current.onStateChange = (state) => {
         setGameState(state);
         setActivePowerUp(state.activePowerUp);
+      };
+      engineRef.current.onPauseChange = (paused) => {
+        setIsPaused(paused);
       };
       
       engineRef.current.onPowerUpUsed = (type) => {
@@ -780,9 +841,10 @@ export default function Game() {
   useEffect(() => {
     if (engineRef.current) {
       engineRef.current.onGameOverCallback = async (score, maxCombo, survived, metrics) => {
-        // Collect match key telemetry into lifetime state
         const matchTelemetry = engineRef.current?.getKeyTelemetry();
         if (matchTelemetry && Object.keys(matchTelemetry).length > 0) {
+          const bottlenecks = identifyBottlenecks(matchTelemetry, KEYBOARD_LAYOUTS[heatmapLayout], 3);
+          setSessionWeakKeys(bottlenecks.map(b => ({ key: b.key, accuracy: Math.max(0, 1 - (b.errorRatePct / 100)), count: b.count })));
           setLifetimeKeyTelemetry(prev => {
             const updated: KeyTelemetryMap = { ...prev };
             for (const [k, stat] of Object.entries(matchTelemetry)) {
@@ -1409,17 +1471,66 @@ export default function Game() {
     }
   };
 
-  const playSinglePlayer = () => {
+  const playSinglePlayer = (forceZen?: boolean) => {
+    const zen = forceZen !== undefined ? forceZen : isZenMode;
     setIsDaily(false);
     setDailySeed(null);
     setIsSinglePlayer(true);
     setIsPlaying(true);
+    setIsPaused(false);
+    setIsZenMode(zen);
     setPlayerMetrics(null);
     setMatchHistory([]);
     setGameState(prev => ({...prev, isGameOver: false}));
     if (engineRef.current) {
       engineRef.current.setWordPack(equippedWordPack);
-      engineRef.current.start(Math.random().toString(), matchDuration * 1000, mods);
+      engineRef.current.start(Math.random().toString(), matchDuration * 1000, mods, zen);
+    }
+  };
+
+  const togglePause = () => {
+    if (!isPlaying || gameState.isGameOver) return;
+    if (isSinglePlayer) {
+      const paused = engineRef.current?.togglePause();
+      setIsPaused(!!paused);
+    }
+  };
+
+  const playAgain = () => {
+    if (isBossFightActive && selectedBossId) {
+      startSoloBossFight(selectedBossId, selectedDifficulty);
+    } else if (isDaily) {
+      playDailyRun();
+    } else {
+      playSinglePlayer(isZenMode);
+    }
+  };
+
+  const handleFinishZenSession = () => {
+    engineRef.current?.finishZenSession();
+  };
+
+  const copyShareCard = () => {
+    const modeLabel = isZenMode ? 'Zen Flow Practice' : isDaily ? 'Daily Run' : isSinglePlayer ? `${matchDuration}s Solo` : 'Multiplayer Arena';
+    const wpm = playerMetrics?.wpm || (gameState.totalKeystrokes > 0 ? Math.round((gameState.correctKeystrokes / 5) / (matchDuration / 60)) : 0);
+    const acc = playerMetrics?.accuracy ?? 100;
+    const rankName = getTierBadge(userRating).name;
+    
+    const shareText = `⚡ TypeClash Match Dossier ⚡\n` +
+      `🎮 Mode: ${modeLabel}\n` +
+      `⚡ Speed: ${wpm} WPM | 🎯 Accuracy: ${acc}%\n` +
+      `🔥 Max Combo: ${gameState.maxCombo}x | 💯 Score: ${gameState.score.toLocaleString()}\n` +
+      (!isGuest ? `🛡️ Rank: ${rankName} (${userRating} Elo)\n` : '') +
+      `⌨️ Play TypeClash: https://typeclash.game`;
+      
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(shareText).then(() => {
+        setShareToast('Match card copied to clipboard! 📋 Ready to share on Discord.');
+        setTimeout(() => setShareToast(null), 3500);
+      }).catch(() => {
+        setShareToast('Copied match stats!');
+        setTimeout(() => setShareToast(null), 2500);
+      });
     }
   };
 
@@ -1457,20 +1568,56 @@ export default function Game() {
   const returnToMenu = () => {
     soundEngineRef.current?.startMenuBGM();
     setIsPlaying(false);
+    setIsPaused(false);
     setIsSinglePlayer(false);
     setCurrentRoom('');
     setRoomCode('');
     setWaitingForOpponent(false);
-            setWaitingForResult(false);
+    setWaitingForResult(false);
     setIsSearchingAuto(false);
     setPlayerMetrics(null);
     setMatchHistory([]);
-        setGameState(prev => ({...prev, isGameOver: false}));
+    setGameState(prev => ({...prev, isGameOver: false}));
+    setBossDefeatData(null);
+    setBossVictoryData(null);
+    setIsBossFightActive(false);
     if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current.connect();
     }
   };
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return;
+
+      if (e.key === 'Escape') {
+        if (isPlaying && !gameState.isGameOver && isSinglePlayer) {
+          e.preventDefault();
+          togglePause();
+        } else if (showAudioPopover) {
+          setShowAudioPopover(false);
+        }
+      } else if (isPaused) {
+        if (e.key === 'r' || e.key === 'R') {
+          e.preventDefault();
+          playAgain();
+        } else if (e.key === 'q' || e.key === 'Q') {
+          e.preventDefault();
+          returnToMenu();
+        }
+      } else if (gameState.isGameOver && !waitingForResult) {
+        if (e.code === 'Space' && !e.repeat) {
+          e.preventDefault();
+          playAgain();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isPlaying, isPaused, gameState.isGameOver, isSinglePlayer, isZenMode, isDaily, waitingForResult, showAudioPopover, selectedBossId, selectedDifficulty]);
 
   return (
     <div className={styles.container} style={{ background: THEMES[customization.theme]?.background || THEMES.dark.background, transition: 'background 0.5s ease', fontFamily: customization.fontFamily }}>
@@ -1489,16 +1636,15 @@ export default function Game() {
 
       {/* HUD overlay */}
       <AnimatePresence>
-      {(isPlaying || gameState.isGameOver) && (
+      {(isPlaying && !gameState.isGameOver) && (
         <motion.div 
-          initial={{ y: -100, opacity: 0 }}
+          initial={{ y: -60, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          exit={{ y: -100, opacity: 0 }}
+          exit={{ y: -60, opacity: 0 }}
           className={styles.hud}
-          style={{ position: 'relative' }}
         >
           {activePowerUp && (
-            <div className={styles.statPanel} style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', borderColor: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', boxShadow: '0 0 15px rgba(251, 191, 36, 0.2)' }}>
+            <div className={styles.statPanel} style={{ position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)', borderColor: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', boxShadow: '0 0 15px rgba(251, 191, 36, 0.2)' }}>
               <div className={styles.statItem}>
                 <div className={styles.statHeader} style={{ color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <FontAwesomeIcon icon={faFire} className={styles.iconPulse} />
@@ -1511,74 +1657,259 @@ export default function Game() {
             </div>
           )}
 
-          <div className={styles.statPanel}>
-            <div className={styles.statItem}>
-              <div className={styles.statHeader}><FontAwesomeIcon icon={faBullseye} style={{ fontSize: 16 }} /> Score</div>
-              <motion.div key={gameState.score} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={styles.statValue}>
+          {/* Left Module: Mode, Time, Score */}
+          <div className={styles.hudCockpitModule}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                {isZenMode ? (
+                  <span style={{ color: '#34d399', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(52, 211, 153, 0.15)', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <FontAwesomeIcon icon={faInfinity} /> ZEN FLOW
+                  </span>
+                ) : isDaily ? (
+                  <span style={{ color: '#fbbf24', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(251, 191, 36, 0.15)', border: '1px solid rgba(251, 191, 36, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <FontAwesomeIcon icon={faFire} /> DAILY RUN
+                  </span>
+                ) : (
+                  <span style={{ color: '#38bdf8', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <FontAwesomeIcon icon={faBolt} /> {isSinglePlayer ? `${matchDuration}s SOLO` : 'ARENA'}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                <span className={styles.statHeader} style={{ fontSize: '0.75rem' }}>TIME</span>
+                <span style={{ fontSize: '1.4rem', fontWeight: 800, color: (!isZenMode && gameState.timeLeft <= 10) ? '#ef4444' : '#f8fafc', fontVariantNumeric: 'tabular-nums' }}>
+                  {isZenMode 
+                    ? `${Math.floor(gameState.timeLeft / 60)}:${(gameState.timeLeft % 60).toString().padStart(2, '0')}`
+                    : `${gameState.timeLeft}s`}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ height: '32px', width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
+
+            <div className={styles.statItem} style={{ alignItems: 'flex-start' }}>
+              <div className={styles.statHeader}><FontAwesomeIcon icon={faBullseye} style={{ fontSize: 13 }} /> Score</div>
+              <motion.div key={gameState.score} initial={{ scale: 1.15 }} animate={{ scale: 1 }} className={styles.statValue} style={{ fontSize: '1.35rem', color: '#4ade80' }}>
                 {gameState.score}
               </motion.div>
             </div>
-            <div className={styles.statItem}>
-              <div className={styles.statHeader}><FontAwesomeIcon icon={faClock} style={{ fontSize: 16 }} /> Time</div>
-              <motion.div 
-                animate={gameState.timeLeft <= 10 ? { scale: [1, 1.1, 1], color: ['#f8fafc', '#ef4444', '#f8fafc'] } : {}}
-                transition={{ repeat: gameState.timeLeft <= 10 ? Infinity : 0, duration: 0.5 }}
-                className={styles.statValue} style={{ color: gameState.timeLeft <= 10 ? '#ef4444' : '#f8fafc' }}>
-                {gameState.timeLeft}s
-              </motion.div>
-            </div>
-            {hudSettings.showWpm && playerMetrics && (
-              <div className={styles.statItem}>
-                <div className={styles.statHeader}><FontAwesomeIcon icon={faBolt} style={{ fontSize: 16, color: '#38bdf8' }} /> WPM</div>
-                <div className={styles.statValue} style={{ color: '#38bdf8' }}>{playerMetrics.wpm}</div>
-              </div>
-            )}
-            {hudSettings.showAccuracy && playerMetrics && (
-              <div className={styles.statItem}>
-                <div className={styles.statHeader}><FontAwesomeIcon icon={faChartLine} style={{ fontSize: 16, color: '#4ade80' }} /> Acc</div>
-                <div className={styles.statValue} style={{ color: '#4ade80' }}>{playerMetrics.accuracy}%</div>
-              </div>
-            )}
             {currentRoom && (
-              <div className={styles.statItem}>
-                <div className={styles.statHeader}><FontAwesomeIcon icon={faKey} style={{ fontSize: 16 }} /> Room</div>
-                <div className={styles.statValue}>{currentRoom}</div>
+              <div className={styles.statItem} style={{ alignItems: 'flex-start' }}>
+                <div className={styles.statHeader}><FontAwesomeIcon icon={faKey} style={{ fontSize: 13 }} /> Room</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f8fafc' }}>{currentRoom}</div>
               </div>
             )}
           </div>
+
+          {/* Center Module: Dynamic Live Speedometer & Accuracy */}
+          <div className={styles.hudCockpitModule} style={{ border: '1px solid rgba(56, 189, 248, 0.25)', boxShadow: '0 0 25px rgba(56, 189, 248, 0.1)' }}>
+            {hudSettings.showWpm && (() => {
+              const wpm = playerMetrics?.wpm || 0;
+              const wpmColor = wpm >= 120 ? '#f43f5e' : wpm >= 90 ? '#fbbf24' : wpm >= 60 ? '#34d399' : '#38bdf8';
+              const wpmTier = wpm >= 120 ? 'HYPER' : wpm >= 90 ? 'MASTER' : wpm >= 60 ? 'PRO' : 'STEADY';
+              return (
+                <div className={styles.statItem}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className={styles.statHeader} style={{ color: wpmColor }}><FontAwesomeIcon icon={faBolt} /> Live WPM</span>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#fff', background: wpmColor, padding: '1px 5px', borderRadius: '3px' }}>
+                      {wpmTier}
+                    </span>
+                  </div>
+                  <motion.div key={wpm} initial={{ scale: 1.1 }} animate={{ scale: 1 }} className={styles.statValue} style={{ color: wpmColor, fontSize: '1.6rem' }}>
+                    {wpm}
+                  </motion.div>
+                </div>
+              );
+            })()}
+
+            {hudSettings.showAccuracy && (
+              <div className={styles.statItem}>
+                <div className={styles.statHeader}><FontAwesomeIcon icon={faChartLine} style={{ color: '#a78bfa' }} /> Acc</div>
+                <div className={styles.statValue} style={{ color: '#a78bfa', fontSize: '1.35rem' }}>
+                  {playerMetrics?.accuracy ?? 100}%
+                </div>
+              </div>
+            )}
+
+            {isZenMode && (
+              <button 
+                className={styles.hudZenFinishBtn} 
+                onClick={handleFinishZenSession}
+                title="Conclude your practice session and review detailed stats"
+              >
+                <FontAwesomeIcon icon={faCheckCircle} style={{ marginRight: '4px' }} /> Finish
+              </button>
+            )}
+          </div>
           
-          <div className={styles.statPanel} style={gameState.combo >= 15 ? { border: '1px solid #38bdf8', boxShadow: '0 0 20px rgba(56, 189, 248, 0.4)' } : {}}>
+          {/* Right Module: Combo Streak, Lives, Pause Action */}
+          <div className={styles.hudCockpitModule} style={gameState.combo >= 15 ? { border: '1px solid #38bdf8', boxShadow: '0 0 20px rgba(56, 189, 248, 0.35)' } : {}}>
             {hudSettings.showCombo && (
               <div className={styles.statItem} style={{ color: gameState.combo > 5 ? '#fcd34d' : 'inherit' }}>
-                <div className={styles.statHeader} style={{ color: gameState.combo > 5 ? '#fde68a' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <FontAwesomeIcon icon={faFire} style={{ fontSize: 16 }} /> Combo
-                  {gameState.combo >= 10 && (
-                    <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: '4px', background: 'linear-gradient(135deg, #f59e0b, #ef4444)', color: '#fff', fontWeight: 800, letterSpacing: '0.05em' }}>
-                      FEVER
-                    </span>
-                  )}
+                <div className={styles.statHeader} style={{ color: gameState.combo >= 25 ? '#f43f5e' : gameState.combo > 5 ? '#fde68a' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <FontAwesomeIcon icon={faFire} style={{ fontSize: 13 }} />
+                  {gameState.combo >= 50 ? 'GODLIKE' : gameState.combo >= 25 ? 'OVERDRIVE' : gameState.combo >= 10 ? 'FEVER' : 'Combo'}
                 </div>
-                <motion.div key={gameState.combo} initial={{ scale: 1.25 }} animate={{ scale: 1 }} className={styles.statValue} style={{ color: gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>
+                <motion.div key={gameState.combo} initial={{ scale: 1.25 }} animate={{ scale: 1 }} className={styles.statValue} style={{ fontSize: '1.35rem', color: gameState.combo >= 25 ? '#f43f5e' : gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>
                   x{gameState.combo}
                 </motion.div>
               </div>
             )}
+
+            <div style={{ height: '32px', width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
+
             <div className={styles.statItem}>
-              <div className={styles.statHeader}><FontAwesomeIcon icon={faHeart} style={{ fontSize: 16 }} /> Lives</div>
+              <div className={styles.statHeader}><FontAwesomeIcon icon={faHeart} style={{ fontSize: 13 }} /> {isZenMode ? 'Vitals' : 'Lives'}</div>
               <div className={styles.statValue} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                <AnimatePresence>
-                  {Array.from({ length: Math.max(0, gameState.lives) }).map((_, i) => (
-                    <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
-                      <FontAwesomeIcon icon={faHeart} style={{ fontSize: 24, color: "#ef4444" }} />
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                {isZenMode ? (
+                  <span style={{ fontSize: '0.85rem', color: '#34d399', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <FontAwesomeIcon icon={faInfinity} /> Endless
+                  </span>
+                ) : (
+                  <AnimatePresence>
+                    {Array.from({ length: Math.max(0, gameState.lives) }).map((_, i) => (
+                      <motion.div 
+                        key={i} 
+                        initial={{ scale: 0 }} 
+                        animate={gameState.lives === 1 ? { scale: [1, 1.25, 1] } : { scale: 1 }} 
+                        transition={{ repeat: gameState.lives === 1 ? Infinity : 0, duration: 0.6 }}
+                        exit={{ scale: 0 }}
+                      >
+                        <FontAwesomeIcon icon={faHeart} style={{ fontSize: 20, color: "#ef4444" }} />
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                )}
               </div>
             </div>
+
+            {isSinglePlayer && (
+              <button 
+                className={styles.hudPauseBtn} 
+                onClick={togglePause} 
+                title="Pause Game (Esc)"
+              >
+                <FontAwesomeIcon icon={faPause} />
+                <span>Esc</span>
+              </button>
+            )}
           </div>
         </motion.div>
       )}
       </AnimatePresence>
+
+      {/* In-Game Pause Overlay */}
+      {isPaused && (
+        <div className={styles.overlay} style={{ zIndex: 120, background: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(16px)' }}>
+          <div className={styles.pauseCard}>
+            <div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#38bdf8', fontSize: '0.82rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(56, 189, 248, 0.15)', padding: '4px 12px', borderRadius: '9999px', marginBottom: '8px' }}>
+                <FontAwesomeIcon icon={faPause} /> Session Suspended
+              </div>
+              <h2 style={{ fontSize: '2.2rem', fontWeight: 900, color: '#f8fafc', margin: '4px 0' }}>PAUSED</h2>
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>
+                {isZenMode ? 'Take a breath in Zen flow practice' : 'Clock and physics are frozen'}
+              </p>
+            </div>
+
+            {/* Snapshot metrics */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', background: 'rgba(255,255,255,0.04)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>TIME</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{gameState.timeLeft}s</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>SCORE</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#4ade80' }}>{gameState.score}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>SPEED</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#38bdf8' }}>{playerMetrics?.wpm || 0}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>ACCURACY</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#a78bfa' }}>{playerMetrics?.accuracy || 100}%</div>
+              </div>
+            </div>
+
+            {/* In-Game Volume Sliders */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left', background: 'rgba(0,0,0,0.25)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Quick Volume Controls</div>
+              <div className={styles.audioSliderRow}>
+                <div className={styles.audioSliderHeader}>
+                  <span>Master Volume</span>
+                  <span style={{ color: '#38bdf8' }}>{Math.round((hudSettings.masterVolume ?? 1) * 100)}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="1" step="0.05"
+                  value={hudSettings.masterVolume ?? 1}
+                  onChange={(e) => handleMasterVolumeChange(parseFloat(e.target.value))}
+                  className={styles.audioSlider}
+                />
+              </div>
+              <div className={styles.audioSliderRow}>
+                <div className={styles.audioSliderHeader}>
+                  <span>SFX Volume</span>
+                  <span style={{ color: '#4ade80' }}>{Math.round(hudSettings.sfxVolume * 100)}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="1" step="0.05"
+                  value={hudSettings.sfxVolume}
+                  onChange={(e) => handleSfxVolumeChange(parseFloat(e.target.value))}
+                  className={styles.audioSlider}
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button 
+                className={styles.btn} 
+                style={{ margin: 0, padding: '12px', fontSize: '1rem', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                onClick={() => engineRef.current?.resumeGame()}
+              >
+                <FontAwesomeIcon icon={faPlay} /> Resume Run [Esc]
+              </button>
+
+              <div style={{ display: 'grid', gridTemplateColumns: isZenMode ? '1fr 1fr' : '1fr 1fr', gap: '8px' }}>
+                <button 
+                  className={styles.btnSmall} 
+                  style={{ padding: '10px', fontSize: '0.85rem', background: 'rgba(245, 158, 11, 0.2)', borderColor: '#f59e0b', color: '#fde68a' }}
+                  onClick={playAgain}
+                >
+                  <FontAwesomeIcon icon={faRotateRight} style={{ marginRight: '6px' }} /> Restart [R]
+                </button>
+                {isZenMode ? (
+                  <button 
+                    className={styles.btnSmall} 
+                    style={{ padding: '10px', fontSize: '0.85rem', background: 'rgba(16, 185, 129, 0.2)', borderColor: '#10b981', color: '#a7f3d0' }}
+                    onClick={handleFinishZenSession}
+                  >
+                    <FontAwesomeIcon icon={faCheckCircle} style={{ marginRight: '6px' }} /> Finish
+                  </button>
+                ) : (
+                  <button 
+                    className={styles.btnSmall} 
+                    style={{ padding: '10px', fontSize: '0.85rem', background: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255,255,255,0.15)' }}
+                    onClick={returnToMenu}
+                  >
+                    <FontAwesomeIcon icon={faRightFromBracket} style={{ marginRight: '6px' }} /> Menu [Q]
+                  </button>
+                )}
+              </div>
+              {isZenMode && (
+                <button 
+                  className={styles.btnSmall} 
+                  style={{ padding: '8px', fontSize: '0.8rem', background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' }}
+                  onClick={returnToMenu}
+                >
+                  Abandon & Return to Hub
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Opponents Sidebar for FFA */}
       {!isSinglePlayer && (isPlaying || gameState.isGameOver) && Object.keys(opponents).length > 0 && (
@@ -1778,57 +2109,168 @@ export default function Game() {
         </div>
       )}
 
-      {/* Main Menu */}
-      {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && !showHowToPlay && !showProfile && (
-        <div className={styles.overlay}>
-          <div className={styles.navBar}>
-            <div className={styles.navBrand}>TypeClash</div>
-            <div className={styles.navControls}>
-              <div className={styles.navUserInfo}>
-                <FontAwesomeIcon icon={faUser} style={{ fontSize: 18 }} />
-                <span style={{ fontWeight: 'bold' }}>{username}</span>
-                {userTitle && <span style={{ fontSize: '0.75rem', color: '#cbd5e1', background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: '4px' }}>{userTitle}</span>}
-                {isGuest ? (
-                  <span style={{ fontSize: '0.8rem', color: '#fcd34d' }}>(Guest)</span>
-                ) : (
-                  <span 
-                    className={styles.tierBadge} 
-                    style={{ 
-                      color: getTierBadge(userRating).color, 
-                      background: getTierBadge(userRating).bg, 
-                      border: `1px solid ${getTierBadge(userRating).border}` 
-                    }}
-                  >
-                    <FontAwesomeIcon icon={getTierBadge(userRating).icon} style={{ fontSize: 11 }} />
-                    {userRating} {userTier}
-                  </span>
-                )}
-              </div>
-              <button onClick={loadProfile} className={styles.navBtn}>
-                <FontAwesomeIcon icon={faChartSimple} style={{ fontSize: 16 }} /> Profile
-              </button>
-              <button onClick={() => { loadWorkshopPacks(); setShowWorkshopModal(true); }} className={styles.navBtn}>
-                <FontAwesomeIcon icon={faBox} style={{ fontSize: 16, color: '#38bdf8' }} /> Word Packs
-              </button>
-              <button onClick={() => setShowHeatmapModal(true)} className={styles.navBtn}>
-                <FontAwesomeIcon icon={faKeyboard} style={{ fontSize: 16, color: '#f59e0b' }} /> Heatmap
-              </button>
-              <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
-
-
-                <FontAwesomeIcon icon={faBookOpen} style={{ fontSize: 16 }} /> How to Play
-              </button>
-              <button onClick={() => setIsMuted(!isMuted)} className={styles.navBtn}>
-                {isMuted ? <FontAwesomeIcon icon={faVolumeXmark} style={{ fontSize: 16 }} /> : <FontAwesomeIcon icon={faVolumeHigh} style={{ fontSize: 16 }} />} Sound
-              </button>
-              <button onClick={() => setShowLogoutConfirm(true)} className={styles.navBtn}>
-                <FontAwesomeIcon icon={faRightFromBracket} style={{ fontSize: 16 }} /> Logout
-              </button>
-            </div>
+      {/* Standardized Fixed Navbar */}
+      {userId && !isPlaying && (
+        <div className={styles.navBar}>
+          <div className={styles.navBrand} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 10px #10b981' }}></span>
+            TypeClash
           </div>
+          <div className={styles.navControls}>
+            <div className={styles.navUserInfo}>
+              <FontAwesomeIcon icon={faUser} style={{ fontSize: 18 }} />
+              <span style={{ fontWeight: 'bold' }}>{username}</span>
+              {userTitle && <span style={{ fontSize: '0.75rem', color: '#cbd5e1', background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: '4px' }}>{userTitle}</span>}
+              {isGuest ? (
+                <span style={{ fontSize: '0.8rem', color: '#fcd34d' }}>(Guest)</span>
+              ) : (
+                <span 
+                  className={styles.tierBadge} 
+                  style={{ 
+                    color: getTierBadge(userRating).color, 
+                    background: getTierBadge(userRating).bg, 
+                    border: `1px solid ${getTierBadge(userRating).border}` 
+                  }}
+                >
+                  <FontAwesomeIcon icon={getTierBadge(userRating).icon} style={{ fontSize: 11 }} />
+                  {userRating} {userTier}
+                </span>
+              )}
+            </div>
+            <button onClick={loadProfile} className={styles.navBtn}>
+              <FontAwesomeIcon icon={faChartSimple} style={{ fontSize: 16 }} /> Profile
+            </button>
+            <button onClick={() => { loadWorkshopPacks(); setShowWorkshopModal(true); }} className={styles.navBtn}>
+              <FontAwesomeIcon icon={faBox} style={{ fontSize: 16, color: '#38bdf8' }} /> Word Packs
+            </button>
+            <button onClick={() => setShowHeatmapModal(true)} className={styles.navBtn}>
+              <FontAwesomeIcon icon={faKeyboard} style={{ fontSize: 16, color: '#f59e0b' }} /> Heatmap
+            </button>
+            <button onClick={() => setShowHowToPlay(true)} className={styles.navBtn}>
+              <FontAwesomeIcon icon={faBookOpen} style={{ fontSize: 16 }} /> How to Play
+            </button>
 
+            {/* Audio Popover Controller */}
+            <div style={{ position: 'relative' }}>
+              <button 
+                onClick={() => setShowAudioPopover(prev => !prev)} 
+                className={styles.navBtn}
+                style={{ borderColor: showAudioPopover ? '#38bdf8' : undefined }}
+              >
+                <FontAwesomeIcon icon={isMuted ? faVolumeXmark : ((hudSettings.masterVolume ?? 1) === 0 ? faVolumeXmark : faVolumeHigh)} style={{ fontSize: 16, color: '#38bdf8' }} /> Sound
+              </button>
 
-          <h1 className={styles.title} style={{ marginBottom: '0.6rem', marginTop: '1.8rem' }}>TypeClash</h1>
+              {showAudioPopover && (
+                <div className={styles.audioPopover} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '0.9rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <FontAwesomeIcon icon={faSliders} style={{ color: '#38bdf8' }} /> Audio & Acoustics
+                    </div>
+                    <button 
+                      onClick={() => setShowAudioPopover(false)} 
+                      style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.2rem', padding: '0 4px' }}
+                    >×</button>
+                  </div>
+
+                  {/* Master Volume */}
+                  <div className={styles.audioSliderRow}>
+                    <div className={styles.audioSliderHeader}>
+                      <span>Master Volume</span>
+                      <span style={{ color: '#38bdf8' }}>{Math.round((hudSettings.masterVolume ?? 1) * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" min="0" max="1" step="0.05"
+                      value={hudSettings.masterVolume ?? 1} 
+                      onChange={(e) => handleMasterVolumeChange(parseFloat(e.target.value))}
+                      className={styles.audioSlider}
+                    />
+                  </div>
+
+                  {/* SFX Volume */}
+                  <div className={styles.audioSliderRow}>
+                    <div className={styles.audioSliderHeader}>
+                      <span>SFX (Keypress & Impacts)</span>
+                      <span style={{ color: '#4ade80' }}>{Math.round(hudSettings.sfxVolume * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" min="0" max="1" step="0.05"
+                      value={hudSettings.sfxVolume} 
+                      onChange={(e) => handleSfxVolumeChange(parseFloat(e.target.value))}
+                      className={styles.audioSlider}
+                    />
+                  </div>
+
+                  {/* BGM Volume */}
+                  <div className={styles.audioSliderRow}>
+                    <div className={styles.audioSliderHeader}>
+                      <span>Music (BGM & Boss Synths)</span>
+                      <span style={{ color: '#c084fc' }}>{Math.round(hudSettings.bgmVolume * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" min="0" max="1" step="0.05"
+                      value={hudSettings.bgmVolume} 
+                      onChange={(e) => handleBgmVolumeChange(parseFloat(e.target.value))}
+                      className={styles.audioSlider}
+                    />
+                  </div>
+
+                  {/* Switch Sound Profile */}
+                  <div className={styles.audioSliderRow} style={{ marginTop: '4px' }}>
+                    <div className={styles.audioSliderHeader}>
+                      <span>Switch Profile</span>
+                    </div>
+                    <select 
+                      value={hudSettings.soundProfile} 
+                      onChange={(e) => handleSoundProfileChange(e.target.value as SoundProfile)}
+                      className={styles.select}
+                      style={{ padding: '6px 8px', fontSize: '0.8rem', background: 'rgba(255,255,255,0.08)' }}
+                    >
+                      <option value="mechanical_clicky">Mechanical Clicky (Blue)</option>
+                      <option value="thock">Mechanical Thock (Linear/Creamy)</option>
+                      <option value="arcade">Retro Arcade (8-Bit)</option>
+                      <option value="scifi">Sci-Fi Pulse (Cyber)</option>
+                    </select>
+                  </div>
+
+                  {/* Test & Mute Row */}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <button 
+                      className={styles.btnSmall} 
+                      style={{ flex: 1, padding: '6px', fontSize: '0.78rem', background: 'rgba(56, 189, 248, 0.15)', borderColor: '#38bdf8', color: '#38bdf8' }}
+                      onClick={() => soundEngineRef.current?.previewSoundProfile(hudSettings.soundProfile)}
+                    >
+                      🔊 Test Keypress
+                    </button>
+                    <button 
+                      className={styles.btnSmall} 
+                      style={{ 
+                        flex: 1, 
+                        padding: '6px', 
+                        fontSize: '0.78rem', 
+                        background: isMuted ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255,255,255,0.08)',
+                        borderColor: isMuted ? '#f87171' : 'rgba(255,255,255,0.15)',
+                        color: isMuted ? '#f87171' : '#cbd5e1'
+                      }}
+                      onClick={() => setIsMuted(prev => !prev)}
+                    >
+                      {isMuted ? 'Unmute All' : 'Mute All'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => setShowLogoutConfirm(true)} className={styles.navBtn}>
+              <FontAwesomeIcon icon={faRightFromBracket} style={{ fontSize: 16 }} /> Logout
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Menu Hub */}
+      {userId && !isPlaying && !gameState.isGameOver && !waitingForOpponent && !showLeaderboard && !showHowToPlay && !showProfile && (
+        <div className={styles.overlay} style={{ paddingTop: '80px' }}>
+          <h1 className={styles.title} style={{ marginBottom: '0.6rem', marginTop: '1.2rem' }}>TypeClash</h1>
 
           <div className={styles.menuGrid}>
             {/* Left Column: Game Setup, Solo, Daily Run & Boss Gauntlet */}
@@ -1858,15 +2300,30 @@ export default function Game() {
                       style={{ 
                         flex: 1, 
                         padding: '8px 4px', 
-                        fontSize: '0.9rem',
-                        background: matchDuration === sec ? '#3b82f6' : 'rgba(255,255,255,0.06)',
-                        borderColor: matchDuration === sec ? '#60a5fa' : 'rgba(255,255,255,0.1)'
+                        fontSize: '0.85rem',
+                        background: (!isZenMode && matchDuration === sec) ? '#3b82f6' : 'rgba(255,255,255,0.06)',
+                        borderColor: (!isZenMode && matchDuration === sec) ? '#60a5fa' : 'rgba(255,255,255,0.1)'
                       }} 
-                      onClick={() => setMatchDuration(sec)}
+                      onClick={() => { setIsZenMode(false); setMatchDuration(sec); }}
                     >
                       {sec === 60 ? '1m' : sec === 180 ? '3m' : sec === 300 ? '5m' : `${sec}s`}
                     </button>
                   ))}
+                  <button 
+                    className={styles.btnSmall} 
+                    style={{ 
+                      flex: 1.2, 
+                      padding: '8px 4px', 
+                      fontSize: '0.85rem',
+                      background: isZenMode ? 'linear-gradient(135deg, #059669, #10b981)' : 'rgba(255,255,255,0.06)',
+                      borderColor: isZenMode ? '#34d399' : 'rgba(255,255,255,0.1)',
+                      color: isZenMode ? '#fff' : '#cbd5e1',
+                      fontWeight: isZenMode ? 700 : 500
+                    }} 
+                    onClick={() => setIsZenMode(true)}
+                  >
+                    <FontAwesomeIcon icon={faInfinity} style={{ marginRight: '4px', fontSize: '0.8rem' }} /> Zen
+                  </button>
                 </div>
 
                 {/* Special Modifiers */}
@@ -1904,14 +2361,25 @@ export default function Game() {
 
               {/* Solo & Daily Run Action Duo */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', width: '100%' }}>
-                <button 
-                  className={styles.btn} 
-                  style={{ marginTop: 0, fontSize: '1.1rem', padding: '13px 10px', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', boxShadow: '0 4px 16px rgba(37, 99, 235, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
-                  onClick={playSinglePlayer}
-                >
-                  <FontAwesomeIcon icon={faBolt} style={{ color: '#93c5fd' }} />
-                  <span>Play Solo</span>
-                </button>
+                {isZenMode ? (
+                  <button 
+                    className={styles.btn} 
+                    style={{ marginTop: 0, fontSize: '1.05rem', padding: '13px 10px', background: 'linear-gradient(135deg, #059669, #0d9488)', boxShadow: '0 4px 16px rgba(13, 148, 136, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
+                    onClick={() => playSinglePlayer(true)}
+                  >
+                    <FontAwesomeIcon icon={faInfinity} style={{ color: '#6ee7b7' }} />
+                    <span>Zen Practice</span>
+                  </button>
+                ) : (
+                  <button 
+                    className={styles.btn} 
+                    style={{ marginTop: 0, fontSize: '1.1rem', padding: '13px 10px', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', boxShadow: '0 4px 16px rgba(37, 99, 235, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
+                    onClick={() => playSinglePlayer(false)}
+                  >
+                    <FontAwesomeIcon icon={faBolt} style={{ color: '#93c5fd' }} />
+                    <span>Play Solo</span>
+                  </button>
+                )}
                 <button 
                   className={styles.btn} 
                   style={{ marginTop: 0, fontSize: '1.1rem', padding: '13px 10px', background: 'linear-gradient(135deg, #d97706, #b45309)', boxShadow: '0 4px 16px rgba(217, 119, 6, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
@@ -1993,44 +2461,52 @@ export default function Game() {
                 
                 {/* 1. Word Pack Studio */}
                 <div 
-                  className={styles.hubFeatureCard}
+                  className={styles.hubFeatureCardModern}
                   onClick={() => { loadWorkshopPacks(); setShowWorkshopModal(true); }}
                   style={{ borderLeft: '3px solid #38bdf8' }}
                 >
-                  <div style={{ fontSize: '1.4rem' }}>📦</div>
+                  <div className={styles.hubCardIconBadge} style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                    <FontAwesomeIcon icon={faBox} />
+                  </div>
                   <strong style={{ fontSize: '0.92rem', color: '#38bdf8' }}>Word Packs</strong>
                   <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Custom Vocabulary</span>
                 </div>
 
                 {/* 2. Keyboard Heatmap */}
                 <div 
-                  className={styles.hubFeatureCard}
+                  className={styles.hubFeatureCardModern}
                   onClick={() => setShowHeatmapModal(true)}
                   style={{ borderLeft: '3px solid #f59e0b' }}
                 >
-                  <div style={{ fontSize: '1.4rem' }}>⌨️</div>
+                  <div className={styles.hubCardIconBadge} style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>
+                    <FontAwesomeIcon icon={faKeyboard} />
+                  </div>
                   <strong style={{ fontSize: '0.92rem', color: '#f59e0b' }}>Key Heatmap</strong>
                   <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Finger Ergonomics</span>
                 </div>
 
                 {/* 3. Leaderboards */}
                 <div 
-                  className={styles.hubFeatureCard}
+                  className={styles.hubFeatureCardModern}
                   onClick={() => loadLeaderboard('GLOBAL', leaderboardMode, matchDuration)}
                   style={{ borderLeft: '3px solid #818cf8' }}
                 >
-                  <div style={{ fontSize: '1.4rem' }}>🏆</div>
+                  <div className={styles.hubCardIconBadge} style={{ background: 'rgba(129, 140, 248, 0.15)', color: '#818cf8' }}>
+                    <FontAwesomeIcon icon={faTrophy} />
+                  </div>
                   <strong style={{ fontSize: '0.92rem', color: '#a5b4fc' }}>Leaderboards</strong>
                   <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Global & Raids</span>
                 </div>
 
                 {/* 4. Player Profile */}
                 <div 
-                  className={styles.hubFeatureCard}
+                  className={styles.hubFeatureCardModern}
                   onClick={loadProfile}
                   style={{ borderLeft: '3px solid #ec4899' }}
                 >
-                  <div style={{ fontSize: '1.4rem' }}>👤</div>
+                  <div className={styles.hubCardIconBadge} style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#ec4899' }}>
+                    <FontAwesomeIcon icon={faUser} />
+                  </div>
                   <strong style={{ fontSize: '0.92rem', color: '#f472b6' }}>My Profile</strong>
                   <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Stats & Themes</span>
                 </div>
@@ -3993,19 +4469,48 @@ export default function Game() {
         </div>
       )}
 
-      {/* Game Over Screen */}
+      {/* Game Over Screen - Esports Match Dossier */}
       {gameState.isGameOver && !waitingForResult && (
         <div className={styles.overlay} style={{ zIndex: 100 }}>
-          <div className={styles.multiplayerBox} style={{ minWidth: '420px', maxWidth: '600px' }}>
-            <h2 className={styles.title} style={{ fontSize: '3rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
-              {isSinglePlayer ? <><FontAwesomeIcon icon={faChartLine} style={{ fontSize: 40 }} /> Match Complete!</> : (
-                 <><FontAwesomeIcon icon={faTrophy} style={{ fontSize: 40 }} /> Match Results</>
-              )}
-            </h2>
-            
-            <p className={styles.scoreText} style={{ marginBottom: '1.5rem' }}>
-              {gameState.survived ? "You Survived the Time Limit!" : "You were crushed by words."}
-            </p>
+          <div className={styles.dossierCard}>
+            {/* Header with Mode Badge */}
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ marginBottom: '6px' }}>
+                {isZenMode ? (
+                  <span style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', border: '1px solid #10b981', padding: '3px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FontAwesomeIcon icon={faInfinity} /> ZEN FLOW PRACTICE
+                  </span>
+                ) : isDaily ? (
+                  <span style={{ background: 'rgba(251, 191, 36, 0.2)', color: '#fbbf24', border: '1px solid #f59e0b', padding: '3px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FontAwesomeIcon icon={faFire} /> DAILY RUN
+                  </span>
+                ) : isSinglePlayer ? (
+                  <span style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid #0284c7', padding: '3px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FontAwesomeIcon icon={faBolt} /> {matchDuration}s SOLO SPRINT
+                  </span>
+                ) : (
+                  <span style={{ background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: '1px solid #9333ea', padding: '3px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FontAwesomeIcon icon={faTrophy} /> MULTIPLAYER ARENA
+                  </span>
+                )}
+              </div>
+
+              <h2 className={styles.title} style={{ fontSize: '2.3rem', margin: '4px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.65rem' }}>
+                {isSinglePlayer ? (
+                  <><FontAwesomeIcon icon={faChartLine} style={{ color: '#38bdf8', fontSize: '2rem' }} /> Match Dossier</>
+                ) : (
+                  <><FontAwesomeIcon icon={faTrophy} style={{ color: '#fbbf24', fontSize: '2rem' }} /> Arena Results</>
+                )}
+              </h2>
+              
+              <p className={styles.scoreText} style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: '#94a3b8' }}>
+                {isZenMode 
+                  ? "Endless flow session concluded."
+                  : gameState.survived 
+                  ? "You survived the full match duration!" 
+                  : "Session concluded. Words reached your base."}
+              </p>
+            </div>
 
             {/* Elo Change Banner for Multiplayer */}
             {!isSinglePlayer && eloChanges && socketRef.current?.id && eloChanges[socketRef.current.id] && (
@@ -4019,11 +4524,10 @@ export default function Game() {
                     background: isPos ? 'rgba(74, 222, 128, 0.15)' : isNeg ? 'rgba(248, 113, 113, 0.15)' : 'rgba(255, 255, 255, 0.05)',
                     border: `1px solid ${isPos ? '#4ade80' : isNeg ? '#f87171' : 'rgba(255,255,255,0.2)'}`,
                     borderRadius: '10px',
-                    padding: '1rem',
-                    marginBottom: '1.5rem',
+                    padding: '0.85rem',
                     textAlign: 'center'
                   }}>
-                    <div style={{ fontSize: '0.9rem', color: '#94a3b8', marginBottom: '4px' }}>Competitive Rating Update</div>
+                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '4px' }}>Competitive Rating Update</div>
                     <div style={{ fontSize: '1.3rem', fontWeight: '800', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
                       <span>{elo.oldRating}</span>
                       <span>➔</span>
@@ -4033,8 +4537,8 @@ export default function Game() {
                         {elo.change > 0 ? `+${elo.change}` : elo.change}
                       </span>
                     </div>
-                    <div style={{ marginTop: '6px' }}>
-                      <span className={styles.tierBadge} style={{ color: badge.color, background: badge.bg, border: `1px solid ${badge.border}`, fontSize: '0.75rem', padding: '2px 8px' }}>
+                    <div style={{ marginTop: '4px' }}>
+                      <span className={styles.tierBadge} style={{ color: badge.color, background: badge.bg, border: `1px solid ${badge.border}`, fontSize: '0.72rem', padding: '2px 8px' }}>
                         <FontAwesomeIcon icon={badge.icon} style={{ fontSize: 10 }} /> {badge.name} Tier
                       </span>
                     </div>
@@ -4043,82 +4547,154 @@ export default function Game() {
               })()
             )}
 
-            {isSinglePlayer ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.05)', padding: '1.5rem', borderRadius: '12px', width: '100%', marginBottom: '2rem' }}>
-                <h3 style={{ borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '0.5rem' }}>Your Stats</h3>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Score:</span> <span style={{ fontWeight: 'bold', color: '#4ade80' }}>{gameState.score}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Max Combo:</span> <span>{gameState.maxCombo}</span></div>
-                {playerMetrics && (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>WPM:</span> <span style={{ fontWeight: 'bold' }}>{playerMetrics.wpm}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Accuracy:</span> <span>{playerMetrics.accuracy}%</span></div>
-                  </>
-                )}
+            {/* Esports 4-Stat Telemetry Grid */}
+            <div className={styles.dossierStatsGrid}>
+              <div className={styles.dossierStatBox}>
+                <span className={styles.dossierStatLabel}>Speed (WPM)</span>
+                {(() => {
+                  const wpm = playerMetrics?.wpm || (gameState.totalKeystrokes > 0 ? Math.round((gameState.correctKeystrokes / 5) / (Math.max(1, matchDuration) / 60)) : 0);
+                  const wpmColor = wpm >= 120 ? '#f43f5e' : wpm >= 90 ? '#fbbf24' : wpm >= 60 ? '#34d399' : '#38bdf8';
+                  return (
+                    <span className={styles.dossierStatValue} style={{ color: wpmColor }}>
+                      {wpm}
+                    </span>
+                  );
+                })()}
               </div>
-            ) : (
-              finalLeaderboard && (
-                <div className={styles.noScrollbar} style={{ width: '100%', marginBottom: '2rem', maxHeight: '40vh', overflowY: 'auto' }}>
-                  <table className={styles.table} style={{ width: '100%', textAlign: 'left' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-                        <th style={{ padding: '10px' }}>Rank</th>
-                        <th style={{ padding: '10px' }}>Player</th>
-                        <th style={{ padding: '10px' }}>Score</th>
-                        <th style={{ padding: '10px' }}>WPM</th>
-                        <th style={{ padding: '10px' }}>Rating</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {finalLeaderboard.map((row, idx) => {
-                        const eloData = eloChanges?.[row.id];
-                        const change = eloData?.change ?? 0;
-                        return (
-                          <tr key={idx} style={{ background: row.username === username ? 'rgba(59, 130, 246, 0.2)' : (idx % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'transparent') }}>
-                            <td style={{ padding: '10px', fontWeight: 'bold', color: row.rank === 1 ? '#fcd34d' : '#fff' }}>
-                              {row.rank === 1 && <FontAwesomeIcon icon={faTrophy} style={{ fontSize: 14, marginRight: "5px" }} />}
-                              {row.rank}
-                            </td>
-                            <td style={{ padding: '10px', textDecoration: !row.survived ? 'line-through' : 'none' }}>{row.username}</td>
-                            <td style={{ padding: '10px', color: '#4ade80', fontWeight: 'bold' }}>{row.score}</td>
-                            <td style={{ padding: '10px' }}>{row.metrics?.wpm || 0}</td>
-                            <td style={{ padding: '10px', fontWeight: 'bold' }}>
-                              {eloData ? (
-                                <span className={change > 0 ? styles.eloDeltaPositive : change < 0 ? styles.eloDeltaNegative : styles.eloDeltaNeutral}>
-                                  {change > 0 ? `+${change}` : change}
-                                </span>
-                              ) : (
-                                '-'
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+              <div className={styles.dossierStatBox}>
+                <span className={styles.dossierStatLabel}>Accuracy</span>
+                <span className={styles.dossierStatValue} style={{ color: '#a78bfa' }}>
+                  {playerMetrics?.accuracy ?? 100}%
+                </span>
+              </div>
+              <div className={styles.dossierStatBox}>
+                <span className={styles.dossierStatLabel}>Max Streak</span>
+                <span className={styles.dossierStatValue} style={{ color: '#fbbf24' }}>
+                  {gameState.maxCombo}x
+                </span>
+              </div>
+              <div className={styles.dossierStatBox}>
+                <span className={styles.dossierStatLabel}>Total Score</span>
+                <span className={styles.dossierStatValue} style={{ color: '#4ade80' }}>
+                  {gameState.score.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            {/* Session Bottleneck Keys Recommendation */}
+            {sessionWeakKeys.length > 0 && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '12px', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FontAwesomeIcon icon={faKeyboard} style={{ color: '#f87171', fontSize: '1.1rem' }} />
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#fca5a5', fontWeight: 700, textTransform: 'uppercase' }}>Session Bottleneck Keys</div>
+                    <div style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
+                      {sessionWeakKeys.map(k => `"${k.key.toUpperCase()}" (${Math.round(k.accuracy * 100)}% acc)`).join(' · ')}
+                    </div>
+                  </div>
                 </div>
-              )
+                <button 
+                  className={styles.btnSmall}
+                  style={{ padding: '6px 12px', fontSize: '0.78rem', background: 'rgba(56, 189, 248, 0.15)', borderColor: '#38bdf8', color: '#7dd3fc' }}
+                  onClick={() => setShowHeatmapModal(true)}
+                >
+                  Drill on Heatmap
+                </button>
+              </div>
             )}
 
+            {/* Multiplayer Leaderboard Table */}
+            {!isSinglePlayer && finalLeaderboard && (
+              <div className={styles.noScrollbar} style={{ width: '100%', maxHeight: '35vh', overflowY: 'auto' }}>
+                <table className={styles.table} style={{ width: '100%', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+                      <th style={{ padding: '10px' }}>Rank</th>
+                      <th style={{ padding: '10px' }}>Player</th>
+                      <th style={{ padding: '10px' }}>Score</th>
+                      <th style={{ padding: '10px' }}>WPM</th>
+                      <th style={{ padding: '10px' }}>Rating</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {finalLeaderboard.map((row, idx) => {
+                      const eloData = eloChanges?.[row.id];
+                      const change = eloData?.change ?? 0;
+                      return (
+                        <tr key={idx} style={{ background: row.username === username ? 'rgba(59, 130, 246, 0.2)' : (idx % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'transparent') }}>
+                          <td style={{ padding: '10px', fontWeight: 'bold', color: row.rank === 1 ? '#fcd34d' : '#fff' }}>
+                            {row.rank === 1 && <FontAwesomeIcon icon={faTrophy} style={{ fontSize: 14, marginRight: "5px" }} />}
+                            {row.rank}
+                          </td>
+                          <td style={{ padding: '10px', textDecoration: !row.survived ? 'line-through' : 'none' }}>{row.username}</td>
+                          <td style={{ padding: '10px', color: '#4ade80', fontWeight: 'bold' }}>{row.score}</td>
+                          <td style={{ padding: '10px' }}>{row.metrics?.wpm || 0}</td>
+                          <td style={{ padding: '10px', fontWeight: 'bold' }}>
+                            {eloData ? (
+                              <span className={change > 0 ? styles.eloDeltaPositive : change < 0 ? styles.eloDeltaNegative : styles.eloDeltaNeutral}>
+                                {change > 0 ? `+${change}` : change}
+                              </span>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Performance Graph */}
             {matchHistory.length > 0 && (
-              <div style={{ width: '100%', height: 220, marginBottom: '2rem', background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '8px' }}>
-                <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: '#e2e8f0', textAlign: 'center' }}>Match Performance (WPM)</h3>
-                <ResponsiveContainer width="100%" height="100%">
+              <div style={{ width: '100%', height: 180, background: 'rgba(0,0,0,0.25)', padding: '0.85rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', textAlign: 'center', marginBottom: '8px' }}>WPM Trajectory</div>
+                <ResponsiveContainer width="100%" height="82%">
                   <LineChart data={matchHistory}>
-                    <XAxis dataKey="time" stroke="#9ca3af" fontSize={12} tickLine={false} tickFormatter={(val) => `${val}s`} />
-                    <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}s`} />
+                    <YAxis stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: '1px solid #3b82f6', borderRadius: '8px' }}
+                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: '1px solid #38bdf8', borderRadius: '8px', fontSize: '0.85rem' }}
                       itemStyle={{ fontWeight: 'bold' }}
-                      labelStyle={{ color: '#9ca3af', marginBottom: '5px' }}
+                      labelStyle={{ color: '#94a3b8', marginBottom: '4px' }}
                     />
-                    <Line type="monotone" dataKey="p1" name={username || 'You'} stroke="#4ade80" strokeWidth={3} dot={false} />
-                    {!isSinglePlayer && <Line type="monotone" dataKey="opponent" name="Top Opponent" stroke="#f87171" strokeWidth={3} dot={false} />}
+                    <Line type="monotone" dataKey="p1" name={username || 'You'} stroke="#38bdf8" strokeWidth={3} dot={false} />
+                    {!isSinglePlayer && <Line type="monotone" dataKey="opponent" name="Top Opponent" stroke="#f43f5e" strokeWidth={2} dot={false} />}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             )}
 
-            <button className={styles.btn} style={{ width: '100%' }} onClick={returnToMenu}>Back to Menu</button>
+            {/* Action Buttons: Instant Replay, Share Card, Menu */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '0.25rem' }}>
+              <button 
+                className={styles.btn} 
+                style={{ margin: 0, padding: '12px', fontSize: '1rem', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                onClick={playAgain}
+              >
+                <FontAwesomeIcon icon={faRotateRight} />
+                <span>Play Again [Space]</span>
+              </button>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px', width: '100%' }}>
+                <button 
+                  className={styles.btnSmall}
+                  style={{ padding: '10px 14px', fontSize: '0.85rem', background: 'rgba(56, 189, 248, 0.15)', borderColor: '#38bdf8', color: '#7dd3fc', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  onClick={copyShareCard}
+                >
+                  <FontAwesomeIcon icon={faShareNodes} />
+                  <span>Copy Share Card</span>
+                </button>
+                <button 
+                  className={styles.btnSmall}
+                  style={{ padding: '10px 14px', fontSize: '0.85rem', background: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255, 255, 255, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  onClick={returnToMenu}
+                >
+                  <span>Back to Menu</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -4144,6 +4720,13 @@ export default function Game() {
             <Link href="/privacy" style={{ color: '#60a5fa', textDecoration: 'none' }}>Privacy</Link>
             <a href="https://github.com/aedriansagap/TypeClash" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'none' }}>GitHub</a>
           </div>
+        </div>
+      )}
+      {/* Share Toast Notification */}
+      {shareToast && (
+        <div className={styles.shareToast}>
+          <FontAwesomeIcon icon={faCheckCircle} />
+          <span>{shareToast}</span>
         </div>
       )}
     </div>

@@ -168,6 +168,11 @@ export class GameEngine {
   public onBossSpellCast?: (abilityId: string) => void;
   public onBossCastInterrupted?: (abilityId: string) => void;
   public onPlayerRevivedByMe?: (targetPlayerId: string) => void;
+  public onPauseChange?: (isPaused: boolean) => void;
+
+  // Pause & Mode State
+  public isPaused: boolean = false;
+  public isZenMode: boolean = false;
 
   // Custom Word Pack
   public activeWordPack: WordPack | null = null;
@@ -199,6 +204,46 @@ export class GameEngine {
     this.activeWordPack = pack;
   }
 
+  public pauseGame() {
+    if (this.isPaused || this.state.isGameOver) return;
+    this.isPaused = true;
+    this.onPauseChange?.(true);
+  }
+
+  public resumeGame() {
+    if (!this.isPaused || this.state.isGameOver) return;
+    this.isPaused = false;
+    this.lastTime = performance.now();
+    this.onPauseChange?.(false);
+  }
+
+  public togglePause(): boolean {
+    if (this.isPaused) {
+      this.resumeGame();
+    } else {
+      this.pauseGame();
+    }
+    return this.isPaused;
+  }
+
+  public finishZenSession() {
+    if (!this.isZenMode || this.state.isGameOver) return;
+    this.sound.stopHeartbeat();
+    this.sound.stopBGM();
+    this.sound.playWin();
+    this.state.isGameOver = true;
+    this.state.survived = true;
+    this.notifyState();
+    
+    const minutes = this.timeElapsed / 60000;
+    const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
+    const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
+    
+    this.onGameOverCallback(this.state.score, this.state.maxCombo, true, {
+      wpm, accuracy, garbageSent: this.state.garbageSent
+    });
+  }
+
 
 
   constructor(canvas: HTMLCanvasElement, theme: ThemeConfig | undefined, fontFamily: string | undefined, soundEngine: SoundEngine) {
@@ -220,15 +265,17 @@ export class GameEngine {
     this.resize();
   }
 
-  public start(seed?: string, durationMs: number = 60000, modifiers?: GameModifiers) {
+  public start(seed?: string, durationMs: number = 60000, modifiers?: GameModifiers, isZen: boolean = false) {
     this.keyStats.clear();
     this.lastKeyTime = 0;
     this.bossEntity = null;
     this.isCoopRaid = false;
+    this.isPaused = false;
+    this.isZenMode = isZen;
     this.random = seedrandom(seed || Math.random().toString());
 
     this.modifiers = modifiers;
-    this.matchDuration = durationMs;
+    this.matchDuration = isZen ? Infinity : durationMs;
     this.isRaidHost = false;
     this.bossStunTimer = 0;
     this.synergyMultiplier = 1.0;
@@ -237,8 +284,8 @@ export class GameEngine {
     this.enrageWarningFired = false;
     this.isBossBerserk = false;
     this.state = { 
-      lives: 3, combo: 0, maxCombo: 0, score: 0, isGameOver: false, 
-      timeLeft: Math.ceil(durationMs/1000), survived: false,
+      lives: isZen ? 999 : 3, combo: 0, maxCombo: 0, score: 0, isGameOver: false, 
+      timeLeft: isZen ? 0 : Math.ceil(durationMs/1000), survived: false,
       totalKeystrokes: 0, correctKeystrokes: 0, garbageSent: 0, activePowerUp: null 
     };
     this.words = [];
@@ -275,6 +322,8 @@ export class GameEngine {
     this.isCoopRaid = isCoop;
     this.isRaidHost = isHost;
     this.partySize = Math.max(1, partySize);
+    this.isPaused = false;
+    this.isZenMode = false;
     this.bossStunTimer = 0;
     this.synergyMultiplier = 1.0;
     this.isTeamOverdrive = false;
@@ -477,6 +526,13 @@ export class GameEngine {
   private loop(time: number) {
     if (this.state.isGameOver) return;
 
+    if (this.isPaused) {
+      this.lastTime = time;
+      this.render();
+      this.animationFrameId = requestAnimationFrame(this.loop.bind(this));
+      return;
+    }
+
     const deltaTime = time - this.lastTime;
     this.lastTime = time;
 
@@ -489,18 +545,31 @@ export class GameEngine {
   private update(deltaTime: number) {
     this.timeElapsed += deltaTime;
     
-    const newTimeLeft = Math.max(0, Math.ceil((this.matchDuration - this.timeElapsed) / 1000));
-    
-    // Only notify React when the seconds tick down (improves performance)
-    if (newTimeLeft !== this.state.timeLeft) {
-      this.state.timeLeft = newTimeLeft;
-      this.notifyState();
+    if (this.isZenMode) {
+      const newTime = Math.floor(this.timeElapsed / 1000);
+      if (newTime !== this.state.timeLeft) {
+        this.state.timeLeft = newTime;
+        this.notifyState();
+        
+        const minutes = this.timeElapsed / 60000;
+        const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
+        const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
+        this.onMetricsUpdate({ wpm, accuracy, garbageSent: this.state.garbageSent, lives: this.state.lives, score: this.state.score });
+      }
+    } else {
+      const newTimeLeft = Math.max(0, Math.ceil((this.matchDuration - this.timeElapsed) / 1000));
       
-      // Emit metrics every second
-      const minutes = this.timeElapsed / 60000;
-      const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
-      const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
-      this.onMetricsUpdate({ wpm, accuracy, garbageSent: this.state.garbageSent, lives: this.state.lives, score: this.state.score });
+      // Only notify React when the seconds tick down (improves performance)
+      if (newTimeLeft !== this.state.timeLeft) {
+        this.state.timeLeft = newTimeLeft;
+        this.notifyState();
+        
+        // Emit metrics every second
+        const minutes = this.timeElapsed / 60000;
+        const wpm = minutes > 0 ? Math.round((this.state.correctKeystrokes / 5) / minutes) : 0;
+        const accuracy = this.state.totalKeystrokes > 0 ? Math.round((this.state.correctKeystrokes / this.state.totalKeystrokes) * 100) : 100;
+        this.onMetricsUpdate({ wpm, accuracy, garbageSent: this.state.garbageSent, lives: this.state.lives, score: this.state.score });
+      }
     }
 
     // Boss Dialogue countdown
@@ -581,7 +650,7 @@ export class GameEngine {
       }
     }
 
-    if (this.timeElapsed >= this.matchDuration && !this.state.isGameOver) {
+    if (!this.isZenMode && this.timeElapsed >= this.matchDuration && !this.state.isGameOver) {
       this.state.isGameOver = true;
       this.state.survived = !this.bossEntity; // Standard match survival is victory!
       this.notifyState();
@@ -604,7 +673,7 @@ export class GameEngine {
     }
 
     // Calculate progressive difficulty score based on time, combo, and score
-    const timeRatio = this.timeElapsed / this.matchDuration;
+    const timeRatio = this.isZenMode ? Math.min(1.0, this.timeElapsed / 180000) : Math.min(1.0, this.timeElapsed / this.matchDuration);
     let progressScore = timeRatio * 1.0; 
     progressScore += Math.min(0.5, this.state.combo * 0.01);
     progressScore += Math.min(0.5, this.state.score * 0.0005);
@@ -1376,13 +1445,13 @@ export class GameEngine {
   }
 
   private handleKeyDown(e: KeyboardEvent) {
-    if (this.state.isGameOver) return;
+    if (this.state.isGameOver || this.isPaused) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     this.processKeyInput(e.key);
   }
 
   public processKeyInput(key: string) {
-    if (this.state.isGameOver) return;
+    if (this.state.isGameOver || this.isPaused) return;
     
     if (key === 'Enter') {
       this.usePowerUp();
@@ -1673,6 +1742,12 @@ export class GameEngine {
   }
 
   private loseLife() {
+    if (this.isZenMode) {
+      this.state.combo = 0;
+      this.notifyState();
+      return;
+    }
+
     this.shakeIntensity = 22;
     this.state.lives -= 1;
     this.state.combo = 0;
