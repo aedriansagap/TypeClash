@@ -33,6 +33,7 @@ interface WordEntity {
   isGolden: boolean;
   hasTypo: boolean;
   color: string;
+  alpha?: number;
 }
 
 interface ParticleEntity {
@@ -78,6 +79,7 @@ export class GameEngine {
   private ctx: CanvasRenderingContext2D;
   private animationFrameId: number = 0;
   private lastTime: number = 0;
+  public hudClearanceHeight: number = 72;
   
   // PRNG
   private random: seedrandom.PRNG;
@@ -394,12 +396,13 @@ export class GameEngine {
         text: chosenGlyph,
         typed: '',
         x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
-        y: -30,
+        y: 135,
         speed: this.baseSpeed * 0.9,
         isJunk: false,
         isGolden: true,
         hasTypo: false,
-        color: '#06b6d4'
+        color: '#06b6d4',
+        alpha: 0
       });
     }
 
@@ -461,12 +464,13 @@ export class GameEngine {
       text,
       typed: '',
       x: Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX)),
-      y: -40,
+      y: this.bossEntity ? 135 : this.hudClearanceHeight,
       speed: this.baseSpeed * 0.8,
       isJunk: false,
       isGolden: true,
       hasTypo: false,
-      color: '#10b981'
+      color: '#10b981',
+      alpha: 0
     });
   }
 
@@ -714,6 +718,9 @@ export class GameEngine {
       for (let i = this.words.length - 1; i >= 0; i--) {
         const word = this.words[i];
         word.y += word.speed * deltaTime;
+        if (word.alpha !== undefined && word.alpha < 1) {
+          word.alpha = Math.min(1, word.alpha + deltaTime / 120);
+        }
 
         // Word hits the bottom
         if (word.y > canvasHeight) {
@@ -1111,6 +1118,10 @@ export class GameEngine {
     this.ctx.textBaseline = 'middle';
 
     for (const word of this.words) {
+      this.ctx.save();
+      if (word.alpha !== undefined) {
+        this.ctx.globalAlpha = word.alpha;
+      }
       const isTargeted = this.targetedWordId === word.id;
       const isInterrupt = word.id.startsWith('interrupt_');
       const isRevive = word.id.startsWith('revive_');
@@ -1213,6 +1224,7 @@ export class GameEngine {
       }
       this.ctx.fillText(remainingText, startX + typedWidth + remainingWidth / 2, word.y);
       this.ctx.shadowBlur = 0;
+      this.ctx.restore();
     }
 
     // Draw multi-form particles
@@ -1308,7 +1320,7 @@ export class GameEngine {
     const hpBarWidth = Math.min(520, canvasWidth * 0.85);
     const hpBarHeight = 20;
     const barX = centerX - hpBarWidth / 2;
-    const barY = 28;
+    const barY = 68;
 
     // Team Overdrive Banner
     if (this.isTeamOverdrive) {
@@ -1326,7 +1338,7 @@ export class GameEngine {
     this.ctx.fillStyle = this.bossEntity.accentColor;
     this.ctx.shadowColor = this.bossEntity.themeColor;
     this.ctx.shadowBlur = 8;
-    this.ctx.fillText(`${this.bossEntity.icon} ${this.bossEntity.name.toUpperCase()} [${this.bossDifficulty.toUpperCase()}]`, centerX, this.isTeamOverdrive ? barY - 2 : 18);
+    this.ctx.fillText(`${this.bossEntity.icon} ${this.bossEntity.name.toUpperCase()} [${this.bossDifficulty.toUpperCase()}]`, centerX, this.isTeamOverdrive ? barY - 2 : barY - 10);
     this.ctx.shadowBlur = 0;
 
     // Boss HP Bar Background
@@ -1567,17 +1579,20 @@ export class GameEngine {
     const maxX = rect.width - (textWidth / 2) - padding;
     const x = Math.max(minX, Math.min(maxX, this.random() * (maxX - minX) + minX));
 
+    const spawnY = this.bossEntity ? 135 : this.hudClearanceHeight;
+
     const word: WordEntity = {
       id: this.random().toString(36).substring(2, 9),
       text,
       typed: '',
       x,
-      y: -30, // Start above screen
+      y: spawnY,
       speed,
       isJunk: false,
       isGolden: this.random() < 0.06,
       hasTypo: false,
-      color: '#ffffff'
+      color: '#ffffff',
+      alpha: 0
     };
 
     this.words.push(word);
@@ -1587,11 +1602,14 @@ export class GameEngine {
     const word = this.words.find(w => w.id === id);
     if (word) {
       if (word.isGolden && !word.hasTypo && normalScore) {
+        this.sound.playGoldenWordSparkle();
         const types: Array<'nuke' | 'freeze' | 'scramble'> = ['nuke', 'freeze', 'scramble'];
         this.state.activePowerUp = types[Math.floor(this.random() * types.length)];
         this.sound.playPowerUpGained?.();
         this.spawnPopup(word.x, word.y - 25, `+${this.state.activePowerUp.toUpperCase()}!`, '#fbbf24', true);
         this.triggerScreenFlash('rgba(251, 191, 36, 0.28)', 250);
+      } else if (normalScore) {
+        this.sound.playWordComplete();
       }
 
       // Check Revive Beacon completion
@@ -1737,11 +1755,17 @@ export class GameEngine {
   }
 
   private breakCombo() {
+    if (this.state.combo >= 10) {
+      this.sound.playComboDrop();
+    }
     this.state.combo = 0;
     this.notifyState();
   }
 
   private loseLife() {
+    if (this.state.combo >= 10) {
+      this.sound.playComboDrop();
+    }
     if (this.isZenMode) {
       this.state.combo = 0;
       this.notifyState();

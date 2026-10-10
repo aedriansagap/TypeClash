@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy, faBox, faPlus, faSearch, faThumbsUp, faEye, faTag, faDownload, faUpload, faFileCode, faTrash, faCheckCircle, faKeyboard, faRotateRight, faPause, faPlay, faInfinity, faShareNodes } from '@fortawesome/free-solid-svg-icons';
+import { faUser, faChartSimple, faBookOpen, faRightFromBracket, faBullseye, faClock, faKey, faFire, faHeart, faTrophy, faChartLine, faBolt, faVolumeHigh, faVolumeXmark, faCrown, faShieldHalved, faArrowUp, faArrowDown, faLock, faSliders, faMusic, faPalette, faCheck, faSkull, faDragon, faUsers, faCopy, faBox, faPlus, faSearch, faThumbsUp, faEye, faEyeSlash, faDice, faTag, faDownload, faUpload, faFileCode, faTrash, faCheckCircle, faKeyboard, faRotateRight, faPause, faPlay, faInfinity, faShareNodes } from '@fortawesome/free-solid-svg-icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GameEngine, GameState } from '@/lib/GameEngine';
 import { SoundEngine, SoundProfile } from '@/lib/SoundEngine';
@@ -107,9 +107,10 @@ export default function Game() {
   const mobileInputRef = useRef<HTMLInputElement>(null);
   
   // Auth & Rating State
-  const [authMode, setAuthMode] = useState<'SELECT' | 'GUEST' | 'LOGIN' | 'REGISTER'>('SELECT');
+  const [authMode, setAuthMode] = useState<'SELECT' | 'GUEST' | 'LOGIN' | 'REGISTER'>('GUEST');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [userRating, setUserRating] = useState<number>(1200);
@@ -118,6 +119,17 @@ export default function Game() {
   const [userLosses, setUserLosses] = useState<number>(0);
   const [authError, setAuthError] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+
+  const generateRandomGuestName = () => {
+    const prefixes = ['Hyper', 'Cyber', 'Velo', 'Apex', 'Sonic', 'Matrix', 'Neon', 'Echo', 'Quantum', 'Pulse', 'Turbo', 'Shadow'];
+    const nouns = ['Typer', 'Runner', 'Striker', 'Key', 'Clasher', 'Volt', 'Storm', 'Blade', 'Spark', 'Racer', 'Pilot', 'Drift'];
+    const num = Math.floor(10 + Math.random() * 90);
+    const p = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const n = nouns[Math.floor(Math.random() * nouns.length)];
+    const generated = `${p}${n}_${num}`;
+    setUsername(generated);
+    soundEngineRef.current?.playUIClick();
+  };
   
   // Game State
   const [gameState, setGameState] = useState<GameState & { maxCombo: number }>({
@@ -1638,46 +1650,40 @@ export default function Game() {
       <AnimatePresence>
       {(isPlaying && !gameState.isGameOver) && (
         <motion.div 
-          initial={{ y: -60, opacity: 0 }}
+          initial={{ y: -56, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          exit={{ y: -60, opacity: 0 }}
-          className={styles.hud}
+          exit={{ y: -56, opacity: 0 }}
+          className={styles.hudDocked}
         >
           {activePowerUp && (
-            <div className={styles.statPanel} style={{ position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)', borderColor: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', boxShadow: '0 0 15px rgba(251, 191, 36, 0.2)' }}>
-              <div className={styles.statItem}>
-                <div className={styles.statHeader} style={{ color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <FontAwesomeIcon icon={faFire} className={styles.iconPulse} />
-                  Power-Up Ready
-                </div>
-                <div className={styles.statValue} style={{ fontSize: '1.2rem', color: '#fbbf24' }}>
-                  {activePowerUp.toUpperCase()} [ENTER]
-                </div>
-              </div>
+            <div style={{ position: 'absolute', top: '64px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(251, 191, 36, 0.2)', border: '1px solid #fbbf24', borderRadius: '9999px', padding: '4px 16px', boxShadow: '0 0 20px rgba(251, 191, 36, 0.35)', display: 'flex', alignItems: 'center', gap: '8px', zIndex: 60, pointerEvents: 'auto' }}>
+              <FontAwesomeIcon icon={faFire} style={{ color: '#fbbf24' }} className={styles.iconPulse} />
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fbbf24', letterSpacing: '0.05em' }}>
+                {activePowerUp.toUpperCase()} READY [ENTER]
+              </span>
             </div>
           )}
 
-          {/* Left Module: Mode, Time, Score */}
-          <div className={styles.hudCockpitModule}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                {isZenMode ? (
-                  <span style={{ color: '#34d399', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(52, 211, 153, 0.15)', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <FontAwesomeIcon icon={faInfinity} /> ZEN FLOW
-                  </span>
-                ) : isDaily ? (
-                  <span style={{ color: '#fbbf24', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(251, 191, 36, 0.15)', border: '1px solid rgba(251, 191, 36, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <FontAwesomeIcon icon={faFire} /> DAILY RUN
-                  </span>
-                ) : (
-                  <span style={{ color: '#38bdf8', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <FontAwesomeIcon icon={faBolt} /> {isSinglePlayer ? `${matchDuration}s SOLO` : 'ARENA'}
-                  </span>
-                )}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                <span className={styles.statHeader} style={{ fontSize: '0.75rem' }}>TIME</span>
-                <span style={{ fontSize: '1.4rem', fontWeight: 800, color: (!isZenMode && gameState.timeLeft <= 10) ? '#ef4444' : '#f8fafc', fontVariantNumeric: 'tabular-nums' }}>
+          {/* Left Wing: Mode, Timer, Score, Room */}
+          <div className={styles.hudDockedWing}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {isZenMode ? (
+                <span style={{ color: '#34d399', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(52, 211, 153, 0.15)', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <FontAwesomeIcon icon={faInfinity} /> ZEN FLOW
+                </span>
+              ) : isDaily ? (
+                <span style={{ color: '#fbbf24', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(251, 191, 36, 0.15)', border: '1px solid rgba(251, 191, 36, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <FontAwesomeIcon icon={faFire} /> DAILY RUN
+                </span>
+              ) : (
+                <span style={{ color: '#38bdf8', fontWeight: 800, fontSize: '0.72rem', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <FontAwesomeIcon icon={faBolt} /> {isSinglePlayer ? `${matchDuration}s SOLO` : 'ARENA'}
+                </span>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                <span className={styles.statHeader} style={{ fontSize: '0.7rem' }}>TIME</span>
+                <span style={{ fontSize: '1.25rem', fontWeight: 800, color: (!isZenMode && gameState.timeLeft <= 10) ? '#ef4444' : '#f8fafc', fontVariantNumeric: 'tabular-nums' }}>
                   {isZenMode 
                     ? `${Math.floor(gameState.timeLeft / 60)}:${(gameState.timeLeft % 60).toString().padStart(2, '0')}`
                     : `${gameState.timeLeft}s`}
@@ -1685,49 +1691,51 @@ export default function Game() {
               </div>
             </div>
 
-            <div style={{ height: '32px', width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
+            <div style={{ height: '24px', width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
 
-            <div className={styles.statItem} style={{ alignItems: 'flex-start' }}>
-              <div className={styles.statHeader}><FontAwesomeIcon icon={faBullseye} style={{ fontSize: 13 }} /> Score</div>
-              <motion.div key={gameState.score} initial={{ scale: 1.15 }} animate={{ scale: 1 }} className={styles.statValue} style={{ fontSize: '1.35rem', color: '#4ade80' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+              <span className={styles.statHeader} style={{ fontSize: '0.7rem' }}><FontAwesomeIcon icon={faBullseye} style={{ fontSize: 11 }} /> SCORE</span>
+              <motion.span key={gameState.score} initial={{ scale: 1.15 }} animate={{ scale: 1 }} style={{ fontSize: '1.25rem', fontWeight: 800, color: '#4ade80' }}>
                 {gameState.score}
-              </motion.div>
+              </motion.span>
             </div>
+
             {currentRoom && (
-              <div className={styles.statItem} style={{ alignItems: 'flex-start' }}>
-                <div className={styles.statHeader}><FontAwesomeIcon icon={faKey} style={{ fontSize: 13 }} /> Room</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f8fafc' }}>{currentRoom}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                <span className={styles.statHeader} style={{ fontSize: '0.7rem' }}><FontAwesomeIcon icon={faKey} style={{ fontSize: 11 }} /> ROOM</span>
+                <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#f8fafc' }}>{currentRoom}</span>
               </div>
             )}
           </div>
 
-          {/* Center Module: Dynamic Live Speedometer & Accuracy */}
-          <div className={styles.hudCockpitModule} style={{ border: '1px solid rgba(56, 189, 248, 0.25)', boxShadow: '0 0 25px rgba(56, 189, 248, 0.1)' }}>
+          {/* Center Cockpit: Live Speedometer & Accuracy */}
+          <div className={styles.hudDockedCenter}>
             {hudSettings.showWpm && (() => {
               const wpm = playerMetrics?.wpm || 0;
               const wpmColor = wpm >= 120 ? '#f43f5e' : wpm >= 90 ? '#fbbf24' : wpm >= 60 ? '#34d399' : '#38bdf8';
               const wpmTier = wpm >= 120 ? 'HYPER' : wpm >= 90 ? 'MASTER' : wpm >= 60 ? 'PRO' : 'STEADY';
               return (
-                <div className={styles.statItem}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span className={styles.statHeader} style={{ color: wpmColor }}><FontAwesomeIcon icon={faBolt} /> Live WPM</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <FontAwesomeIcon icon={faBolt} style={{ color: wpmColor, fontSize: '0.85rem' }} />
                     <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#fff', background: wpmColor, padding: '1px 5px', borderRadius: '3px' }}>
                       {wpmTier}
                     </span>
                   </div>
-                  <motion.div key={wpm} initial={{ scale: 1.1 }} animate={{ scale: 1 }} className={styles.statValue} style={{ color: wpmColor, fontSize: '1.6rem' }}>
-                    {wpm}
-                  </motion.div>
+                  <motion.span key={wpm} initial={{ scale: 1.1 }} animate={{ scale: 1 }} style={{ color: wpmColor, fontSize: '1.4rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                    {wpm} <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8' }}>WPM</span>
+                  </motion.span>
                 </div>
               );
             })()}
 
             {hudSettings.showAccuracy && (
-              <div className={styles.statItem}>
-                <div className={styles.statHeader}><FontAwesomeIcon icon={faChartLine} style={{ color: '#a78bfa' }} /> Acc</div>
-                <div className={styles.statValue} style={{ color: '#a78bfa', fontSize: '1.35rem' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                <FontAwesomeIcon icon={faChartLine} style={{ color: '#a78bfa', fontSize: '0.85rem' }} />
+                <span style={{ color: '#a78bfa', fontSize: '1.2rem', fontWeight: 800 }}>
                   {playerMetrics?.accuracy ?? 100}%
-                </div>
+                </span>
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Acc</span>
               </div>
             )}
 
@@ -1736,51 +1744,49 @@ export default function Game() {
                 className={styles.hudZenFinishBtn} 
                 onClick={handleFinishZenSession}
                 title="Conclude your practice session and review detailed stats"
+                style={{ padding: '4px 10px', fontSize: '0.75rem' }}
               >
                 <FontAwesomeIcon icon={faCheckCircle} style={{ marginRight: '4px' }} /> Finish
               </button>
             )}
           </div>
           
-          {/* Right Module: Combo Streak, Lives, Pause Action */}
-          <div className={styles.hudCockpitModule} style={gameState.combo >= 15 ? { border: '1px solid #38bdf8', boxShadow: '0 0 20px rgba(56, 189, 248, 0.35)' } : {}}>
+          {/* Right Wing: Combo Streak, Lives, Pause Action */}
+          <div className={styles.hudDockedWing}>
             {hudSettings.showCombo && (
-              <div className={styles.statItem} style={{ color: gameState.combo > 5 ? '#fcd34d' : 'inherit' }}>
-                <div className={styles.statHeader} style={{ color: gameState.combo >= 25 ? '#f43f5e' : gameState.combo > 5 ? '#fde68a' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <FontAwesomeIcon icon={faFire} style={{ fontSize: 13 }} />
-                  {gameState.combo >= 50 ? 'GODLIKE' : gameState.combo >= 25 ? 'OVERDRIVE' : gameState.combo >= 10 ? 'FEVER' : 'Combo'}
-                </div>
-                <motion.div key={gameState.combo} initial={{ scale: 1.25 }} animate={{ scale: 1 }} className={styles.statValue} style={{ fontSize: '1.35rem', color: gameState.combo >= 25 ? '#f43f5e' : gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: gameState.combo >= 25 ? '#f43f5e' : gameState.combo > 5 ? '#fde68a' : '#94a3b8', fontSize: '0.72rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <FontAwesomeIcon icon={faFire} />
+                  {gameState.combo >= 50 ? 'GODLIKE' : gameState.combo >= 25 ? 'OVERDRIVE' : gameState.combo >= 10 ? 'FEVER' : 'COMBO'}
+                </span>
+                <motion.span key={gameState.combo} initial={{ scale: 1.25 }} animate={{ scale: 1 }} style={{ fontSize: '1.25rem', fontWeight: 800, color: gameState.combo >= 25 ? '#f43f5e' : gameState.combo > 5 ? '#fcd34d' : '#f8fafc' }}>
                   x{gameState.combo}
-                </motion.div>
+                </motion.span>
               </div>
             )}
 
-            <div style={{ height: '32px', width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
+            <div style={{ height: '24px', width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
 
-            <div className={styles.statItem}>
-              <div className={styles.statHeader}><FontAwesomeIcon icon={faHeart} style={{ fontSize: 13 }} /> {isZenMode ? 'Vitals' : 'Lives'}</div>
-              <div className={styles.statValue} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                {isZenMode ? (
-                  <span style={{ fontSize: '0.85rem', color: '#34d399', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <FontAwesomeIcon icon={faInfinity} /> Endless
-                  </span>
-                ) : (
-                  <AnimatePresence>
-                    {Array.from({ length: Math.max(0, gameState.lives) }).map((_, i) => (
-                      <motion.div 
-                        key={i} 
-                        initial={{ scale: 0 }} 
-                        animate={gameState.lives === 1 ? { scale: [1, 1.25, 1] } : { scale: 1 }} 
-                        transition={{ repeat: gameState.lives === 1 ? Infinity : 0, duration: 0.6 }}
-                        exit={{ scale: 0 }}
-                      >
-                        <FontAwesomeIcon icon={faHeart} style={{ fontSize: 20, color: "#ef4444" }} />
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                )}
-              </div>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              {isZenMode ? (
+                <span style={{ fontSize: '0.8rem', color: '#34d399', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <FontAwesomeIcon icon={faInfinity} /> Endless
+                </span>
+              ) : (
+                <AnimatePresence>
+                  {Array.from({ length: Math.max(0, gameState.lives) }).map((_, i) => (
+                    <motion.div 
+                      key={i} 
+                      initial={{ scale: 0 }} 
+                      animate={gameState.lives === 1 ? { scale: [1, 1.25, 1] } : { scale: 1 }} 
+                      transition={{ repeat: gameState.lives === 1 ? Infinity : 0, duration: 0.6 }}
+                      exit={{ scale: 0 }}
+                    >
+                      <FontAwesomeIcon icon={faHeart} style={{ fontSize: 18, color: "#ef4444" }} />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              )}
             </div>
 
             {isSinglePlayer && (
@@ -1788,6 +1794,7 @@ export default function Game() {
                 className={styles.hudPauseBtn} 
                 onClick={togglePause} 
                 title="Pause Game (Esc)"
+                style={{ padding: '4px 10px', fontSize: '0.78rem' }}
               >
                 <FontAwesomeIcon icon={faPause} />
                 <span>Esc</span>
@@ -2021,90 +2028,301 @@ export default function Game() {
         </div>
       )}
 
-      {/* Login Screens */}
+      {/* Redesigned Login & Auth Portal */}
       {!userId && (
-        <div className={styles.overlay}>
-          <h1 className={styles.title}>TypeClash</h1>
+        <div className={styles.overlay} style={{ padding: '1.5rem' }}>
+          <div className={styles.authPortalContainer}>
+            {/* Left Hero Column */}
+            <div className={styles.authHeroSection}>
+              <div>
+                <div className={styles.authHeroBadge}>
+                  <FontAwesomeIcon icon={faBolt} /> Esports Speed Typing
+                </div>
 
-          <div className={styles.multiplayerBox} style={{ width: '400px' }}>
-            
-            {authMode === 'SELECT' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '1.25rem' }}>
+                  <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: 'linear-gradient(135deg, #38bdf8, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '1.3rem', boxShadow: '0 0 20px rgba(56, 189, 248, 0.45)' }}>
+                    <FontAwesomeIcon icon={faKeyboard} />
+                  </div>
+                  <span style={{ fontSize: '2rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#f8fafc' }}>TypeClash</span>
+                </div>
 
-              <>
-                <h3 className={styles.subtitle}>Welcome</h3>
-                <button className={styles.btn} style={{width: '100%', marginBottom: '0.5rem', background: 'linear-gradient(135deg, #3b82f6, #2563eb)'}} onClick={() => setAuthMode('GUEST')}>Play as Guest</button>
-                <button className={styles.btn} style={{width: '100%', marginBottom: '0.5rem', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)'}} onClick={() => setAuthMode('LOGIN')}>Log In</button>
-                <button className={styles.btn} style={{width: '100%', marginBottom: '0.75rem', background: 'linear-gradient(135deg, #1e40af, #1e3a8a)'}} onClick={() => setAuthMode('REGISTER')}>Create Account</button>
-                
-                <div className={styles.orDivider} style={{ marginBottom: '0.75rem' }}>or continue with</div>
+                <h2 className={styles.authHeroTitle}>
+                  Dominate the<br />
+                  <span style={{ background: 'linear-gradient(135deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Typing Arena.</span>
+                </h2>
 
+                <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: '0 0 1.25rem 0', lineHeight: 1.5 }}>
+                  Real-time competitive sprints, co-op raid titan encounters, and precision ergonomic telemetry.
+                </p>
+
+                {/* 3 Feature Highlights */}
+                <div className={styles.authHeroFeatures}>
+                  <div className={styles.authHeroFeatureItem}>
+                    <div className={styles.authHeroIconBox} style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                      <FontAwesomeIcon icon={faTrophy} />
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '0.85rem', color: '#f8fafc', display: 'block' }}>Ranked Matchmaking</strong>
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Real-time sprints with competitive Elo tiers</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.authHeroFeatureItem}>
+                    <div className={styles.authHeroIconBox} style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171' }}>
+                      <FontAwesomeIcon icon={faDragon} />
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '0.85rem', color: '#f8fafc', display: 'block' }}>Co-Op Raid Titans</strong>
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Stagger bosses, interrupt spells, and revive allies</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.authHeroFeatureItem}>
+                    <div className={styles.authHeroIconBox} style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399' }}>
+                      <FontAwesomeIcon icon={faVolumeHigh} />
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '0.85rem', color: '#f8fafc', display: 'block' }}>Mechanical Key Acoustics</strong>
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Thock, Clicky, Linear Creamy, and Bubble Pop</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Status Badge */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#34d399', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '6px 14px', borderRadius: '9999px', width: 'fit-content' }}>
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 10px #10b981' }}></span>
+                <span>Season 1 Ranked Live · Instant Matchmaking</span>
+              </div>
+            </div>
+
+            {/* Right Auth Cockpit Column */}
+            <div className={styles.authCardSection}>
+              {/* Segmented Glass Tab Switcher */}
+              <div className={styles.authTabPills}>
                 <button 
-                  className={styles.btn} 
-                  style={{
-                    width: '100%', 
-                    background: '#ffffff', 
-                    color: '#1f2937', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    gap: '10px',
-                    fontWeight: '600'
-                  }} 
-                  onClick={() => handleOAuthLogin('google')}
+                  className={`${styles.authTabPill} ${authMode === 'GUEST' ? styles.authTabPillActive : ''}`}
+                  onClick={() => { setAuthMode('GUEST'); soundEngineRef.current?.playTabSwitch(); setAuthError(''); }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                  </svg>
-                  Sign in with Google
+                  <FontAwesomeIcon icon={faBolt} /> Quick Play
                 </button>
-              </>
-            )}
-
-            {authMode === 'GUEST' && (
-              <>
-                <h3 className={styles.subtitle}>Guest Player</h3>
-                <input 
-                  type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Guest Username"
-                  value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/guest')}
-                  disabled={isAuthLoading}
-                />
-                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem', opacity: isAuthLoading ? 0.7 : 1}} disabled={isAuthLoading} onClick={() => handleAuth('/api/auth/guest')}>
-                  {isAuthLoading ? <div className={styles.loader} style={{ width: '20px', height: '20px', border: '3px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : 'Start'}
+                <button 
+                  className={`${styles.authTabPill} ${authMode === 'LOGIN' ? styles.authTabPillActive : ''}`}
+                  onClick={() => { setAuthMode('LOGIN'); soundEngineRef.current?.playTabSwitch(); setAuthError(''); }}
+                >
+                  <FontAwesomeIcon icon={faUser} /> Log In
                 </button>
-                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} disabled={isAuthLoading} onClick={() => setAuthMode('SELECT')}>Back</button>
-                {authError && <p style={{color: '#ef4444', marginTop: '1rem'}}>{authError}</p>}
-              </>
-            )}
-
-            {authMode === 'LOGIN' && (
-              <>
-                <h3 className={styles.subtitle}>Log In</h3>
-                <input type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isAuthLoading} />
-                <input type="password" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/login')} disabled={isAuthLoading} />
-                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem', opacity: isAuthLoading ? 0.7 : 1}} disabled={isAuthLoading} onClick={() => handleAuth('/api/auth/login')}>
-                  {isAuthLoading ? <div className={styles.loader} style={{ width: '20px', height: '20px', border: '3px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : 'Log In'}
+                <button 
+                  className={`${styles.authTabPill} ${authMode === 'REGISTER' ? styles.authTabPillActive : ''}`}
+                  onClick={() => { setAuthMode('REGISTER'); soundEngineRef.current?.playTabSwitch(); setAuthError(''); }}
+                >
+                  <FontAwesomeIcon icon={faCrown} /> Register
                 </button>
-                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} disabled={isAuthLoading} onClick={() => setAuthMode('SELECT')}>Back</button>
-                {authError && <p style={{color: '#ef4444', marginTop: '1rem'}}>{authError}</p>}
-              </>
-            )}
+              </div>
 
-            {authMode === 'REGISTER' && (
-              <>
-                <h3 className={styles.subtitle}>Create Account</h3>
-                <input type="text" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isAuthLoading} />
-                <input type="password" className={styles.input} style={{width: '100%', marginBottom: '1rem'}} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/register')} disabled={isAuthLoading} />
-                <button className={styles.btn} style={{width: '100%', marginBottom: '1rem', opacity: isAuthLoading ? 0.7 : 1}} disabled={isAuthLoading} onClick={() => handleAuth('/api/auth/register')}>
-                  {isAuthLoading ? <div className={styles.loader} style={{ width: '20px', height: '20px', border: '3px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : 'Register'}
-                </button>
-                <button className={styles.btnSmall} style={{width: '100%', background: 'transparent', border: '1px solid gray'}} disabled={isAuthLoading} onClick={() => setAuthMode('SELECT')}>Back</button>
-                {authError && <p style={{color: '#ef4444', marginTop: '1rem'}}>{authError}</p>}
-              </>
-            )}
+              {/* Tab 1: Guest Quick Play */}
+              {authMode === 'GUEST' && (
+                <div>
+                  <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f8fafc', margin: '0 0 4px 0' }}>Jump Straight In</h3>
+                  <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: '0 0 1.25rem 0' }}>Pick a handle or roll a random combat tag to start playing immediately.</p>
 
+                  <div className={styles.authInputGroup}>
+                    <FontAwesomeIcon icon={faUser} className={styles.authInputIcon} />
+                    <input 
+                      type="text" 
+                      className={styles.authInput} 
+                      placeholder="Enter a guest handle..."
+                      value={username} 
+                      onChange={(e) => setUsername(e.target.value)} 
+                      onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/guest')}
+                      disabled={isAuthLoading}
+                    />
+                    <button 
+                      type="button" 
+                      className={styles.authInputBtn} 
+                      onClick={generateRandomGuestName} 
+                      title="Roll Random Gaming Handle"
+                    >
+                      <FontAwesomeIcon icon={faDice} style={{ fontSize: '1.1rem', color: '#38bdf8' }} />
+                    </button>
+                  </div>
+
+                  <button 
+                    className={styles.btn} 
+                    style={{ width: '100%', margin: '0.5rem 0 1rem 0', padding: '12px', background: 'linear-gradient(135deg, #059669, #10b981)', opacity: isAuthLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
+                    disabled={isAuthLoading} 
+                    onClick={() => handleAuth('/api/auth/guest')}
+                  >
+                    {isAuthLoading ? (
+                      <div className={styles.loader} style={{ width: '18px', height: '18px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
+                    ) : (
+                      <>
+                        <FontAwesomeIcon icon={faPlay} />
+                        <span>Enter Arena [Enter]</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className={styles.orDivider} style={{ margin: '0.75rem 0', fontSize: '0.75rem' }}>or continue with</div>
+
+                  <button className={styles.authGoogleBtn} onClick={() => handleOAuthLogin('google')}>
+                    <svg width="18" height="18" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                    <span>Sign in with Google</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Tab 2: Log In */}
+              {authMode === 'LOGIN' && (
+                <div>
+                  <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f8fafc', margin: '0 0 4px 0' }}>Welcome Back</h3>
+                  <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: '0 0 1.25rem 0' }}>Sign in to sync your competitive Elo, titles, and word packs.</p>
+
+                  <div className={styles.authInputGroup}>
+                    <FontAwesomeIcon icon={faUser} className={styles.authInputIcon} />
+                    <input 
+                      type="text" 
+                      className={styles.authInput} 
+                      placeholder="Username" 
+                      value={username} 
+                      onChange={(e) => setUsername(e.target.value)} 
+                      disabled={isAuthLoading} 
+                    />
+                  </div>
+
+                  <div className={styles.authInputGroup}>
+                    <FontAwesomeIcon icon={faLock} className={styles.authInputIcon} />
+                    <input 
+                      type={showPassword ? 'text' : 'password'} 
+                      className={styles.authInput} 
+                      placeholder="Password" 
+                      value={password} 
+                      onChange={(e) => setPassword(e.target.value)} 
+                      onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/login')} 
+                      disabled={isAuthLoading} 
+                    />
+                    <button 
+                      type="button" 
+                      className={styles.authInputBtn} 
+                      onClick={() => setShowPassword(!showPassword)}
+                      title={showPassword ? "Hide password" : "Show password"}
+                    >
+                      <FontAwesomeIcon icon={showPassword ? faEyeSlash : faEye} />
+                    </button>
+                  </div>
+
+                  <button 
+                    className={styles.btn} 
+                    style={{ width: '100%', margin: '0.5rem 0 1rem 0', padding: '12px', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', opacity: isAuthLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
+                    disabled={isAuthLoading} 
+                    onClick={() => handleAuth('/api/auth/login')}
+                  >
+                    {isAuthLoading ? (
+                      <div className={styles.loader} style={{ width: '18px', height: '18px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
+                    ) : (
+                      <>
+                        <FontAwesomeIcon icon={faRightFromBracket} />
+                        <span>Log In [Enter]</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className={styles.orDivider} style={{ margin: '0.75rem 0', fontSize: '0.75rem' }}>or continue with</div>
+
+                  <button className={styles.authGoogleBtn} onClick={() => handleOAuthLogin('google')}>
+                    <svg width="18" height="18" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                    <span>Sign in with Google</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Tab 3: Create Account */}
+              {authMode === 'REGISTER' && (
+                <div>
+                  <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f8fafc', margin: '0 0 4px 0' }}>Join TypeClash</h3>
+                  <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: '0 0 1.25rem 0' }}>Create your profile and start climbing the seasonal leaderboards.</p>
+
+                  <div className={styles.authInputGroup}>
+                    <FontAwesomeIcon icon={faUser} className={styles.authInputIcon} />
+                    <input 
+                      type="text" 
+                      className={styles.authInput} 
+                      placeholder="Choose a username" 
+                      value={username} 
+                      onChange={(e) => setUsername(e.target.value)} 
+                      disabled={isAuthLoading} 
+                    />
+                  </div>
+
+                  <div className={styles.authInputGroup}>
+                    <FontAwesomeIcon icon={faLock} className={styles.authInputIcon} />
+                    <input 
+                      type={showPassword ? 'text' : 'password'} 
+                      className={styles.authInput} 
+                      placeholder="Create a password" 
+                      value={password} 
+                      onChange={(e) => setPassword(e.target.value)} 
+                      onKeyDown={(e) => e.key === 'Enter' && !isAuthLoading && handleAuth('/api/auth/register')} 
+                      disabled={isAuthLoading} 
+                    />
+                    <button 
+                      type="button" 
+                      className={styles.authInputBtn} 
+                      onClick={() => setShowPassword(!showPassword)}
+                      title={showPassword ? "Hide password" : "Show password"}
+                    >
+                      <FontAwesomeIcon icon={showPassword ? faEyeSlash : faEye} />
+                    </button>
+                  </div>
+
+                  <button 
+                    className={styles.btn} 
+                    style={{ width: '100%', margin: '0.5rem 0 1rem 0', padding: '12px', background: 'linear-gradient(135deg, #1e40af, #3b82f6)', opacity: isAuthLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} 
+                    disabled={isAuthLoading} 
+                    onClick={() => handleAuth('/api/auth/register')}
+                  >
+                    {isAuthLoading ? (
+                      <div className={styles.loader} style={{ width: '18px', height: '18px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
+                    ) : (
+                      <>
+                        <FontAwesomeIcon icon={faCrown} />
+                        <span>Create Account & Play</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className={styles.orDivider} style={{ margin: '0.75rem 0', fontSize: '0.75rem' }}>or continue with</div>
+
+                  <button className={styles.authGoogleBtn} onClick={() => handleOAuthLogin('google')}>
+                    <svg width="18" height="18" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                    <span>Sign in with Google</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Error Alert Display */}
+              {authError && (
+                <div style={{ marginTop: '1rem', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', padding: '8px 12px', color: '#fca5a5', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FontAwesomeIcon icon={faSkull} />
+                  <span>{authError}</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -2226,7 +2444,9 @@ export default function Game() {
                       style={{ padding: '6px 8px', fontSize: '0.8rem', background: 'rgba(255,255,255,0.08)' }}
                     >
                       <option value="mechanical_clicky">Mechanical Clicky (Blue)</option>
-                      <option value="thock">Mechanical Thock (Linear/Creamy)</option>
+                      <option value="thock">Mechanical Thock (Heavy/Deep)</option>
+                      <option value="linear_creamy">Linear Creamy (Lubed/Velvety)</option>
+                      <option value="bubble_pop">Bubble Pop (Tactile/Drop)</option>
                       <option value="arcade">Retro Arcade (8-Bit)</option>
                       <option value="scifi">Sci-Fi Pulse (Cyber)</option>
                     </select>
@@ -3002,7 +3222,9 @@ export default function Game() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                   {[
                     { id: 'mechanical_clicky', name: 'Clicky Blue Switch', desc: 'Tactile, crisp high-snap click' },
-                    { id: 'thock', name: 'Deep Thock (Linear)', desc: 'Smooth, deep resonant bottom-out' },
+                    { id: 'thock', name: 'Deep Thock (Heavy)', desc: 'Smooth, deep resonant bottom-out' },
+                    { id: 'linear_creamy', name: 'Linear Creamy (Lubed)', desc: 'Velvety smooth cushioned keypress with warm pop' },
+                    { id: 'bubble_pop', name: 'Bubble Pop (Tactile)', desc: 'Satisfying tactile waterdrop bubble acoustics' },
                     { id: 'arcade', name: 'Retro Synth (Arcade)', desc: 'Musical harmonic tones scaling with combo' },
                     { id: 'scifi', name: 'Sci-Fi Laser', desc: 'Futuristic micro blaster pulses' }
                   ].map(profile => {

@@ -1,4 +1,4 @@
-export type SoundProfile = 'mechanical_clicky' | 'thock' | 'arcade' | 'scifi';
+export type SoundProfile = 'mechanical_clicky' | 'thock' | 'arcade' | 'scifi' | 'linear_creamy' | 'bubble_pop';
 
 export class SoundEngine {
   private ctx: AudioContext | null = null;
@@ -146,35 +146,49 @@ export class SoundEngine {
       return;
     }
 
-    const pan = (Math.random() - 0.5) * 0.4;
+    const pan = (Math.random() - 0.5) * 0.35;
     const finalSfxVol = 0.25 * this.sfxVolume;
+    // Organic human micro-pitch variation (±2.5% variation)
+    const jitter = 1 + (Math.random() - 0.5) * 0.05;
 
     switch (this.soundProfile) {
       case 'mechanical_clicky': {
         // Crisp tactile clicky switch: High-pass noise tick + sharp dual micro-snap
-        this.playNoiseClick('white', 0.012, finalSfxVol * 1.6, 4500, 'bandpass', pan);
-        this.playTone(2800, 'sine', 0.015, finalSfxVol * 1.2, 1200, pan);
+        this.playNoiseClick('white', 0.012, finalSfxVol * 1.6, 4500 * jitter, 'bandpass', pan);
+        this.playTone(2850 * jitter, 'sine', 0.015, finalSfxVol * 1.25, 1200 * jitter, pan);
         setTimeout(() => {
-          this.playTone(1400, 'triangle', 0.01, finalSfxVol * 0.7, 900, pan);
-        }, 6);
+          this.playTone(1420 * jitter, 'triangle', 0.01, finalSfxVol * 0.75, 900 * jitter, pan);
+        }, 5);
         break;
       }
       case 'thock': {
         // Deep, creamy, bottom-out mechanical switch (thocky linear/tactile)
-        this.playTone(180, 'sine', 0.045, finalSfxVol * 2.2, 65, pan);
-        this.playNoiseClick('pink', 0.022, finalSfxVol * 1.4, 850, 'lowpass', pan);
+        this.playTone(175 * jitter, 'sine', 0.045, finalSfxVol * 2.3, 60 * jitter, pan);
+        this.playNoiseClick('pink', 0.022, finalSfxVol * 1.5, 820 * jitter, 'lowpass', pan);
+        break;
+      }
+      case 'linear_creamy': {
+        // Smooth lubed mechanical switch: velvety mid body + cushioned dampening
+        this.playTone(260 * jitter, 'sine', 0.04, finalSfxVol * 2.1, 105 * jitter, pan);
+        this.playNoiseClick('pink', 0.016, finalSfxVol * 1.2, 1050 * jitter, 'lowpass', pan);
+        break;
+      }
+      case 'bubble_pop': {
+        // Tactile bubble / waterdrop pop: satisfying pitch-swept sine bubble
+        this.playTone(320 * jitter, 'sine', 0.042, finalSfxVol * 2.2, 980 * jitter, pan);
+        this.playTone(180 * jitter, 'triangle', 0.025, finalSfxVol * 0.85, undefined, pan);
         break;
       }
       case 'scifi': {
         // Laser sci-fi micro blaster blip
-        const basePitch = 1600 + Math.min(800, combo * 15);
+        const basePitch = (1600 + Math.min(800, combo * 15)) * jitter;
         this.playTone(basePitch, 'square', 0.035, finalSfxVol * 0.9, basePitch * 0.25, pan);
         break;
       }
       case 'arcade':
       default: {
         // Melodic retro synth with combo frequency scaling
-        const baseFreq = 380;
+        const baseFreq = 380 * jitter;
         const comboMod = Math.min(550, combo * 12);
         this.playTone(baseFreq + comboMod, 'sine', 0.09, finalSfxVol * 1.1, undefined, pan);
         break;
@@ -254,8 +268,37 @@ export class SoundEngine {
   }
 
   public playWordComplete() {
-    this.playTone(880, 'sine', 0.12, 0.22);
-    setTimeout(() => this.playTone(1320, 'sine', 0.25, 0.22, undefined, 0, true), 75);
+    this.playTone(659.25, 'sine', 0.1, 0.2); // E5
+    setTimeout(() => this.playTone(880, 'sine', 0.14, 0.22, undefined, 0.1, true), 45); // A5
+    setTimeout(() => this.playTone(1318.51, 'sine', 0.2, 0.25, undefined, 0.2, true), 90); // E6
+  }
+
+  public playGoldenWordSparkle() {
+    [1046.50, 1318.51, 1567.98, 2093.00].forEach((freq, idx) => {
+      setTimeout(() => {
+        this.playTone(freq, 'sine', 0.22, 0.3, undefined, (idx % 2 === 0 ? -0.4 : 0.4), true);
+      }, idx * 60);
+    });
+  }
+
+  public playComboDrop() {
+    this.playTone(420, 'sine', 0.3, 0.22, 110, 0, false);
+    this.playNoiseClick('pink', 0.12, 0.18, 600, 'lowpass');
+  }
+
+  public playMatchCountdown(count: number) {
+    if (count > 0) {
+      this.playTone(880, 'sine', 0.08, 0.25, 950);
+      this.playTone(1760, 'triangle', 0.04, 0.15);
+    } else {
+      this.playTone(1046.50, 'sine', 0.35, 0.35, undefined, -0.2, true);
+      this.playTone(1318.51, 'sine', 0.35, 0.35, undefined, 0.2, true);
+      this.playTone(2093.00, 'triangle', 0.45, 0.4, undefined, 0, true);
+    }
+  }
+
+  public playTabSwitch() {
+    this.playTone(740, 'sine', 0.05, 0.14, 980);
   }
 
   public playGarbageSent() {
